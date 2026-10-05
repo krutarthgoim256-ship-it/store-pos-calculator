@@ -9,7 +9,7 @@ jobs:
   build-windows:
     runs-on: windows-latest
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout
@@ -26,9 +26,18 @@ jobs:
       - name: Build Windows app
         run: npm run build
 
-      - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
+      - name: Read app version
+        id: version
+        shell: bash
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Publish Windows EXE as GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: Store-POS-Windows
-          path: dist/*.exe
-          if-no-files-found: error
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Store POS Calculator v${{ steps.version.outputs.version }}
+          files: dist/*.exe
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
