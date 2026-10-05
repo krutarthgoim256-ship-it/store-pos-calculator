@@ -3,7 +3,8 @@ name: Build Windows EXE
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    tags:
+      - "v*.*.*"
 
 jobs:
   build-windows:
@@ -32,7 +33,7 @@ jobs:
         run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
       - name: Publish Windows EXE as GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: Store POS Calculator v${{ steps.version.outputs.version }}
