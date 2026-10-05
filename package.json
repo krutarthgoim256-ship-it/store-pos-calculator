@@ -1,0 +1,6 @@
+{
+  "name":"store-pos-calculator","version":"1.0.0","description":"Offline desktop POS for weight-based stores","main":"src/main.js",
+  "scripts":{"start":"electron .","dev":"electron .","build":"electron-builder --win"},
+  "devDependencies":{"electron":"^38.2.0","electron-builder":"^26.0.12"},
+  "build":{"appId":"com.krutarth.storepos","productName":"Store POS Calculator","files":["src/**/*","package.json"],"win":{"target":"nsis"},"nsis":{"oneClick":false,"allowToChangeInstallationDirectory":true}}
+}
