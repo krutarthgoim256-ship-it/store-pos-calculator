@@ -65,23 +65,13 @@ function bindEvents(){
     cart.forEach(x=>{let p=db.products.find(p=>p.id===x.productId);if(p)p.stock=Math.max(0,p.stock-x.qty)});
     cart=[];$("#discount").value=0;$("#cash").value=0;save();
     if(sendWhatsApp){
-      if(!window.posPrinter?.saveReceiptPdf)return alert("PDF receipt sharing is unavailable in this build. The sale has been saved.");
-      let pdfResult;
-      try{pdfResult=await window.posPrinter.saveReceiptPdf({html:receiptPdfHTML(sale),filename:"Receipt-"+sale.id+".pdf"});}
-      catch(error){alert("The sale was saved, but the PDF could not be created: "+(error?.message||error));return;}
-      if(!pdfResult?.success){
-        if(!pdfResult?.cancelled)alert(pdfResult?.error||"The sale was saved, but the PDF could not be created.");
-        return;
-      }
-      const message="Hello, please find attached the PDF receipt for bill "+sale.id+".";
+      const lines=sale.items.map(x=>"- "+x.name+" — "+x.qty+" "+x.unit+" × "+money(x.price)+" = "+money(x.line));
+      const message=[db.settings.shop||"My Store","Bill: "+sale.id,"Date: "+sale.date+" "+sale.time,"",...lines,"","Total: "+money(sale.total),"Payment: "+sale.payment,"Thank you for shopping with us!"].join("\n");
       const encodedText=encodeURIComponent(message);
       const desktopUrl="whatsapp://send?phone="+phone+"&text="+encodedText;
       const webUrl="https://wa.me/"+phone+"?text="+encodedText;
-      if(window.posPrinter?.openWhatsApp)window.posPrinter.openWhatsApp({desktopUrl,webUrl}).then(r=>{
-        if(!r?.success)alert(r?.error||"Could not open WhatsApp. Your PDF is saved at: "+pdfResult.path);
-        else alert("PDF receipt saved and WhatsApp opened. In WhatsApp, attach the PDF from the folder that opened, then tap Send.\n\nFile: "+pdfResult.path);
-      }).catch(()=>alert("PDF saved at "+pdfResult.path+". Please open WhatsApp and attach the PDF manually."));
-      else alert("PDF saved at "+pdfResult.path+". WhatsApp sharing is unavailable in this build.");
+      if(window.posPrinter?.openWhatsApp)window.posPrinter.openWhatsApp({desktopUrl,webUrl}).then(r=>{if(!r?.success)alert(r?.error||"Could not open WhatsApp.");}).catch(()=>alert("Could not open WhatsApp. Please check that WhatsApp Desktop or your browser is installed."));
+      else alert("WhatsApp sharing is unavailable in this build.");
     }else{
       const shouldPrint=confirm("Sale completed: "+sale.id+" · "+money(total)+"\n\nPrint receipt now?");
       if(shouldPrint)printReceipt(sale);
