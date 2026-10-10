@@ -1,4 +1,4 @@
-const {app,BrowserWindow,Menu,ipcMain,shell}=require("electron");const path=require("path");
+const {app,BrowserWindow,Menu,ipcMain,shell,dialog}=require("electron");const path=require("path");const fs=require("fs");
 
 function createWindow(){
   const w=new BrowserWindow({
@@ -31,6 +31,34 @@ ipcMain.handle("open-whatsapp",async(_event,links)=>{
       await shell.openExternal(links.webUrl);
       return {success:true,opened:"web"};
     }
+  }catch(error){return {success:false,error:error.message};}
+});
+
+
+ipcMain.handle("save-receipt-pdf",async(event,args)=>{
+  const html=args?.html;
+  const filename=String(args?.filename||"Receipt.pdf").replace(/[\\/:*?"<>|]/g,"-");
+  if(typeof html!=="string"||!html.trim())return {success:false,error:"Empty receipt"};
+  const folder=path.join(app.getPath("documents"),"Store POS Receipts");
+  try{
+    fs.mkdirSync(folder,{recursive:true});
+    const choice=await dialog.showSaveDialog(BrowserWindow.fromWebContents(event.sender),{
+      title:"Save PDF Receipt",
+      defaultPath:path.join(folder,filename),
+      buttonLabel:"Save Receipt",
+      filters:[{name:"PDF Receipt",extensions:["pdf"]}]
+    });
+    if(choice.canceled||!choice.filePath)return {success:false,cancelled:true};
+    const pdfWin=new BrowserWindow({show:false,width:900,height:1100,webPreferences:{contextIsolation:true,nodeIntegration:false}});
+    try{
+      await pdfWin.loadURL("data:text/html;charset=utf-8,"+encodeURIComponent(html));
+      const pdf=await pdfWin.webContents.printToPDF({pageSize:"A4",printBackground:true,margins:{top:0.35,bottom:0.35,left:0.35,right:0.35}});
+      fs.writeFileSync(choice.filePath,pdf);
+    }finally{
+      if(!pdfWin.isDestroyed())pdfWin.close();
+    }
+    shell.showItemInFolder(choice.filePath);
+    return {success:true,path:choice.filePath};
   }catch(error){return {success:false,error:error.message};}
 });
 
