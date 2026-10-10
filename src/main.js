@@ -10,7 +10,9 @@ function createWindow(){
 
 ipcMain.handle("open-whatsapp",async(_event,url)=>{
   try{
-    if(typeof url!=="string"||!/^https:\/\/wa\.me\/\d{10,15}\?text=/.test(url))return {success:false,error:"Invalid WhatsApp link."};
+    if(typeof url!=="string")return {success:false,error:"Invalid WhatsApp link."};
+    const parsed=new URL(url);
+    if(parsed.protocol!=="https:"||parsed.hostname!=="wa.me"||!/^\/\d{10,15}$/.test(parsed.pathname)||!parsed.searchParams.has("text"))return {success:false,error:"Invalid WhatsApp link."};
     await shell.openExternal(url);
     return {success:true};
   }catch(error){return {success:false,error:error.message};}
