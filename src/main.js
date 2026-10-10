@@ -1,4 +1,4 @@
-const {app,BrowserWindow,Menu,ipcMain}=require("electron");const path=require("path");
+const {app,BrowserWindow,Menu,ipcMain,shell}=require("electron");const path=require("path");
 
 function createWindow(){
   const w=new BrowserWindow({
@@ -7,6 +7,14 @@ function createWindow(){
   });
   w.loadFile(path.join(__dirname,"index.html"));
 }
+
+ipcMain.handle("open-whatsapp",async(_event,url)=>{
+  try{
+    if(typeof url!=="string"||!/^https:\/\/wa\.me\/\d{10,15}\?text=/.test(url))return {success:false,error:"Invalid WhatsApp link."};
+    await shell.openExternal(url);
+    return {success:true};
+  }catch(error){return {success:false,error:error.message};}
+});
 
 ipcMain.handle("get-printers",async(event)=>{
   try{return await event.sender.getPrintersAsync();}catch(error){return [];}
