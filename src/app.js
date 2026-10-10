@@ -48,7 +48,30 @@ function bindEvents(){
   safe(()=>{$("#addItem").onclick=()=>safe(()=>{let p=db.products.find(x=>x.id===$("#productSelect").value),q=+$("#qty").value||0;if(!p||q<=0)return alert("Select a product and enter a quantity.");let factor=$("#unit").value==="g"&&p.unit==="kg"?0.001:1;let qty=q*factor;cart.push({productId:p.id,name:p.name,qty,unit:p.unit,price:p.price,cost:p.cost,stock:p.stock,line:qty*p.price,costTotal:qty*p.cost});renderCart()});});
   safe(()=>{$("#cart").onclick=e=>{if(e.target.classList.contains("remove")){cart.splice(+e.target.dataset.i,1);renderCart()}};});
   safe(()=>{$("#clearCart").onclick=()=>{cart=[];renderCart()};});
-  safe(()=>{$("#completeSale").onclick=()=>safe(()=>{if(!cart.length)return alert("Add at least one item.");let sub=cart.reduce((a,x)=>a+x.line,0),disc=+$("#discount").value||0,total=Math.max(0,sub-disc),cash=+$("#cash").value||0;if($("#payment").value==="Cash"&&cash<total)return alert("Cash received is less than the total.");let sale={id:"B-"+Date.now().toString().slice(-6),date:today(),time:new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}),payment:$("#payment").value,total,profit:total-cart.reduce((a,x)=>a+x.costTotal,0),items:cart.map(x=>({...x}))};db.sales.push(sale);cart.forEach(x=>{let p=db.products.find(p=>p.id===x.productId);if(p)p.stock=Math.max(0,p.stock-x.qty)});const shouldPrint=confirm("Sale completed: "+sale.id+" · "+money(total)+"\\n\\nPrint receipt now?");if(shouldPrint)printReceipt(sale);cart=[];$("#discount").value=0;$("#cash").value=0;save()});});
+  function completeSale(sendWhatsApp){
+    if(!cart.length)return alert("Add at least one item.");
+    let sub=cart.reduce((a,x)=>a+x.line,0),disc=+$("#discount").value||0,total=Math.max(0,sub-disc),cash=+$("#cash").value||0;
+    if($("#payment").value==="Cash"&&cash<total)return alert("Cash received is less than the total.");
+    let phone=($("#customerWhatsApp")?.value||"").replace(/\\D/g,"");
+    if(sendWhatsApp&&!phone)return alert("Enter the customer's WhatsApp number, including country code.");
+    if(sendWhatsApp&&(phone.length<10||phone.length>15))return alert("Enter a valid WhatsApp number with country code, digits only.");
+    let sale={id:"B-"+Date.now().toString().slice(-6),date:today(),time:new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}),payment:$("#payment").value,total,profit:total-cart.reduce((a,x)=>a+x.costTotal,0),customerWhatsApp:phone||"",items:cart.map(x=>({...x}))};
+    db.sales.push(sale);
+    cart.forEach(x=>{let p=db.products.find(p=>p.id===x.productId);if(p)p.stock=Math.max(0,p.stock-x.qty)});
+    cart=[];$("#discount").value=0;$("#cash").value=0;save();
+    if(sendWhatsApp){
+      const lines=sale.items.map(x=>"- "+x.name+" — "+x.qty+" "+x.unit+" × "+money(x.price)+" = "+money(x.line));
+      const message=[db.settings.shop||"My Store","Bill: "+sale.id,"Date: "+sale.date+" "+sale.time,"",...lines,"","Total: "+money(sale.total),"Payment: "+sale.payment,"Thank you for shopping with us!"].join("\\n");
+      const url="https://wa.me/"+phone+"?text="+encodeURIComponent(message);
+      if(window.posPrinter?.openWhatsApp)window.posPrinter.openWhatsApp(url).then(r=>{if(!r?.success)alert(r?.error||"Could not open WhatsApp.");}).catch(()=>alert("Could not open WhatsApp. Please check your default browser."));
+      else alert("WhatsApp sharing is unavailable in this build.");
+    }else{
+      const shouldPrint=confirm("Sale completed: "+sale.id+" · "+money(total)+"\\n\\nPrint receipt now?");
+      if(shouldPrint)printReceipt(sale);
+    }
+  }
+  safe(()=>{$("#completeSale").onclick=()=>safe(()=>completeSale(false));});
+  safe(()=>{$("#completeSaleWhatsApp").onclick=()=>safe(()=>completeSale(true));});
   safe(()=>{$$(".range").forEach(b=>b.onclick=()=>safe(()=>renderReports(b.dataset.range==="today"?"today":+b.dataset.range)));});
   safe(()=>{$("#saveSettings").onclick=()=>safe(()=>{db.settings.shop=$("#setShop").value.trim()||"My Store";db.settings.currency=$("#setCurrency").value||"₹";db.settings.threshold=+$("#setThreshold").value||0;db.settings.printer=$("#setPrinter")?.value||"";save();alert("Settings saved.")});});
   safe(()=>{$("#refreshPrinters").onclick=()=>safe(()=>loadPrinters());});
