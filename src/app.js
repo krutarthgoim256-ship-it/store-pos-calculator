@@ -52,7 +52,7 @@ function bindEvents(){
     if(!cart.length)return alert("Add at least one item.");
     let sub=cart.reduce((a,x)=>a+x.line,0),disc=+$("#discount").value||0,total=Math.max(0,sub-disc),cash=+$("#cash").value||0;
     if($("#payment").value==="Cash"&&cash<total)return alert("Cash received is less than the total.");
-    let phone=($("#customerWhatsApp")?.value||"").replace(/\\D/g,"");
+    let phone=($("#customerWhatsApp")?.value||"").replace(/\D/g,"");
     if(sendWhatsApp&&!phone)return alert("Enter the customer's WhatsApp number, including country code.");
     if(sendWhatsApp&&(phone.length<10||phone.length>15))return alert("Enter a valid WhatsApp number with country code, digits only.");
     let sale={id:"B-"+Date.now().toString().slice(-6),date:today(),time:new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}),payment:$("#payment").value,total,profit:total-cart.reduce((a,x)=>a+x.costTotal,0),customerWhatsApp:phone||"",items:cart.map(x=>({...x}))};
@@ -61,12 +61,12 @@ function bindEvents(){
     cart=[];$("#discount").value=0;$("#cash").value=0;save();
     if(sendWhatsApp){
       const lines=sale.items.map(x=>"- "+x.name+" — "+x.qty+" "+x.unit+" × "+money(x.price)+" = "+money(x.line));
-      const message=[db.settings.shop||"My Store","Bill: "+sale.id,"Date: "+sale.date+" "+sale.time,"",...lines,"","Total: "+money(sale.total),"Payment: "+sale.payment,"Thank you for shopping with us!"].join("\\n");
+      const message=[db.settings.shop||"My Store","Bill: "+sale.id,"Date: "+sale.date+" "+sale.time,"",...lines,"","Total: "+money(sale.total),"Payment: "+sale.payment,"Thank you for shopping with us!"].join("\n");
       const url="https://wa.me/"+phone+"?text="+encodeURIComponent(message);
       if(window.posPrinter?.openWhatsApp)window.posPrinter.openWhatsApp(url).then(r=>{if(!r?.success)alert(r?.error||"Could not open WhatsApp.");}).catch(()=>alert("Could not open WhatsApp. Please check your default browser."));
       else alert("WhatsApp sharing is unavailable in this build.");
     }else{
-      const shouldPrint=confirm("Sale completed: "+sale.id+" · "+money(total)+"\\n\\nPrint receipt now?");
+      const shouldPrint=confirm("Sale completed: "+sale.id+" · "+money(total)+"\n\nPrint receipt now?");
       if(shouldPrint)printReceipt(sale);
     }
   }
