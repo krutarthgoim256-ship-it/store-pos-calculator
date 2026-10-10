@@ -8,13 +8,29 @@ function createWindow(){
   w.loadFile(path.join(__dirname,"index.html"));
 }
 
-ipcMain.handle("open-whatsapp",async(_event,url)=>{
+ipcMain.handle("open-whatsapp",async(_event,links)=>{
   try{
-    if(typeof url!=="string")return {success:false,error:"Invalid WhatsApp link."};
-    const parsed=new URL(url);
-    if(parsed.protocol!=="https:"||parsed.hostname!=="wa.me"||!/^\/\d{10,15}$/.test(parsed.pathname)||!parsed.searchParams.has("text"))return {success:false,error:"Invalid WhatsApp link."};
-    await shell.openExternal(url);
-    return {success:true};
+    if(!links||typeof links!=="object")return {success:false,error:"Invalid WhatsApp link."};
+    const validWeb=(value)=>{
+      try{
+        const u=new URL(value);
+        return u.protocol==="https:"&&u.hostname==="wa.me"&&/^\/\d{10,15}$/.test(u.pathname)&&u.searchParams.has("text");
+      }catch{return false;}
+    };
+    const validDesktop=(value)=>{
+      try{
+        const u=new URL(value);
+        return u.protocol==="whatsapp:"&&u.hostname==="send"&&/^\d{10,15}$/.test(u.searchParams.get("phone")||"")&&u.searchParams.has("text");
+      }catch{return false;}
+    };
+    if(!validDesktop(links.desktopUrl)||!validWeb(links.webUrl))return {success:false,error:"Invalid WhatsApp link."};
+    try{
+      await shell.openExternal(links.desktopUrl);
+      return {success:true,opened:"desktop"};
+    }catch(_desktopError){
+      await shell.openExternal(links.webUrl);
+      return {success:true,opened:"web"};
+    }
   }catch(error){return {success:false,error:error.message};}
 });
 
