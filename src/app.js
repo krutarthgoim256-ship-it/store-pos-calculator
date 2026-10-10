@@ -14,6 +14,11 @@ function receiptHTML(sale){
   const items=sale.items.map(x=>'<tr><td>'+esc(x.name)+'<small>'+Number(x.qty).toFixed(3)+' '+esc(x.unit)+' × '+cur+Number(x.price).toFixed(2)+'</small></td><td>'+cur+Number(x.line).toFixed(2)+'</td></tr>').join("");
   return '<!doctype html><html><head><meta charset="UTF-8"><style>@page{size:80mm auto;margin:0}*{box-sizing:border-box}body{width:80mm;margin:0;padding:5mm;font-family:Arial,sans-serif;color:#000;font-size:12px}h1{text-align:center;font-size:18px;margin:0 0 4px}.center{text-align:center}.line{border-top:1px dashed #000;margin:8px 0}table{width:100%;border-collapse:collapse}td{padding:4px 0;vertical-align:top}td:last-child{text-align:right;white-space:nowrap}small{display:block;font-size:10px}.total{font-size:16px;font-weight:bold}footer{text-align:center;margin-top:12px;font-size:10px}</style></head><body><h1>'+shop+'</h1><div class="center">Bill '+esc(sale.id)+'<br>'+esc(sale.date)+' '+esc(sale.time)+'</div><div class="line"></div><table>'+items+'</table><div class="line"></div><table><tr><td>Payment</td><td>'+esc(sale.payment)+'</td></tr><tr class="total"><td>Total</td><td>'+cur+Number(sale.total).toFixed(2)+'</td></tr></table><footer>Thank you!</footer></body></html>';
 }
+function receiptPdfHTML(sale){
+  const shop=esc(db.settings.shop||"My Store"),cur=esc(db.settings.currency||"₹");
+  const items=sale.items.map(x=>'<tr><td>'+esc(x.name)+'</td><td>'+Number(x.qty).toFixed(3)+' '+esc(x.unit)+'</td><td>'+cur+Number(x.price).toFixed(2)+'</td><td>'+cur+Number(x.line).toFixed(2)+'</td></tr>').join("");
+  return '<!doctype html><html><head><meta charset="UTF-8"><style>@page{size:A4;margin:18mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;color:#182230;font-size:12px;line-height:1.45}h1{font-size:26px;margin:0 0 5px;color:#101828}.muted{color:#667085}.top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #344054;padding-bottom:16px;margin-bottom:18px}.bill{font-size:22px;font-weight:700;text-align:right}table{width:100%;border-collapse:collapse;margin-top:18px}th{background:#f2f4f7;text-align:left;color:#344054}th,td{padding:10px 8px;border-bottom:1px solid #eaecf0}th:nth-child(n+2),td:nth-child(n+2){text-align:right}.totals{width:280px;margin-left:auto;margin-top:18px}.totals td{border:0;padding:5px 8px}.grand{font-size:18px;font-weight:bold;border-top:2px solid #344054!important}.footer{text-align:center;margin-top:45px;padding-top:15px;border-top:1px solid #eaecf0;color:#667085}</style></head><body><div class="top"><div><h1>'+shop+'</h1><div class="muted">Sales receipt</div></div><div class="bill">RECEIPT<br><span class="muted" style="font-size:12px;font-weight:normal">Bill '+esc(sale.id)+'</span></div></div><p><b>Date:</b> '+esc(sale.date)+' &nbsp;&nbsp; <b>Time:</b> '+esc(sale.time)+'<br><b>Payment method:</b> '+esc(sale.payment)+'</p><table><thead><tr><th>Item</th><th>Qty / Weight</th><th>Rate</th><th>Amount</th></tr></thead><tbody>'+items+'</tbody></table><table class="totals"><tr><td>Subtotal</td><td>'+cur+Number(sale.items.reduce((a,x)=>a+Number(x.line||0),0)).toFixed(2)+'</td></tr><tr class="grand"><td>Total</td><td>'+cur+Number(sale.total).toFixed(2)+'</td></tr></table><div class="footer">Thank you for shopping with us!</div></body></html>';
+}
 async function printReceipt(sale){
   if(!window.posPrinter?.printReceipt)return alert("Printing is not available in this build.");
   const printer=selectedPrinter();
@@ -60,20 +65,30 @@ function bindEvents(){
     cart.forEach(x=>{let p=db.products.find(p=>p.id===x.productId);if(p)p.stock=Math.max(0,p.stock-x.qty)});
     cart=[];$("#discount").value=0;$("#cash").value=0;save();
     if(sendWhatsApp){
-      const lines=sale.items.map(x=>"- "+x.name+" — "+x.qty+" "+x.unit+" × "+money(x.price)+" = "+money(x.line));
-      const message=[db.settings.shop||"My Store","Bill: "+sale.id,"Date: "+sale.date+" "+sale.time,"",...lines,"","Total: "+money(sale.total),"Payment: "+sale.payment,"Thank you for shopping with us!"].join("\n");
+      if(!window.posPrinter?.saveReceiptPdf)return alert("PDF receipt sharing is unavailable in this build. The sale has been saved.");
+      let pdfResult;
+      try{pdfResult=await window.posPrinter.saveReceiptPdf({html:receiptPdfHTML(sale),filename:"Receipt-"+sale.id+".pdf"});}
+      catch(error){alert("The sale was saved, but the PDF could not be created: "+(error?.message||error));return;}
+      if(!pdfResult?.success){
+        if(!pdfResult?.cancelled)alert(pdfResult?.error||"The sale was saved, but the PDF could not be created.");
+        return;
+      }
+      const message="Hello, please find attached the PDF receipt for bill "+sale.id+".";
       const encodedText=encodeURIComponent(message);
       const desktopUrl="whatsapp://send?phone="+phone+"&text="+encodedText;
       const webUrl="https://wa.me/"+phone+"?text="+encodedText;
-      if(window.posPrinter?.openWhatsApp)window.posPrinter.openWhatsApp({desktopUrl,webUrl}).then(r=>{if(!r?.success)alert(r?.error||"Could not open WhatsApp.");}).catch(()=>alert("Could not open WhatsApp. Please check that WhatsApp Desktop or your browser is installed."));
-      else alert("WhatsApp sharing is unavailable in this build.");
+      if(window.posPrinter?.openWhatsApp)window.posPrinter.openWhatsApp({desktopUrl,webUrl}).then(r=>{
+        if(!r?.success)alert(r?.error||"Could not open WhatsApp. Your PDF is saved at: "+pdfResult.path);
+        else alert("PDF receipt saved and WhatsApp opened. In WhatsApp, attach the PDF from the folder that opened, then tap Send.\n\nFile: "+pdfResult.path);
+      }).catch(()=>alert("PDF saved at "+pdfResult.path+". Please open WhatsApp and attach the PDF manually."));
+      else alert("PDF saved at "+pdfResult.path+". WhatsApp sharing is unavailable in this build.");
     }else{
       const shouldPrint=confirm("Sale completed: "+sale.id+" · "+money(total)+"\n\nPrint receipt now?");
       if(shouldPrint)printReceipt(sale);
     }
   }
   safe(()=>{$("#completeSale").onclick=()=>safe(()=>completeSale(false));});
-  safe(()=>{$("#completeSaleWhatsApp").onclick=()=>safe(()=>completeSale(true));});
+  safe(()=>{$("#completeSaleWhatsApp").onclick=()=>safe(()=>{completeSale(true).catch(e=>alert("Could not prepare the PDF receipt: "+(e?.message||e)));});});
   safe(()=>{$$(".range").forEach(b=>b.onclick=()=>safe(()=>renderReports(b.dataset.range==="today"?"today":+b.dataset.range)));});
   safe(()=>{$("#saveSettings").onclick=()=>safe(()=>{db.settings.shop=$("#setShop").value.trim()||"My Store";db.settings.currency=$("#setCurrency").value||"₹";db.settings.threshold=+$("#setThreshold").value||0;db.settings.printer=$("#setPrinter")?.value||"";save();alert("Settings saved.")});});
   safe(()=>{$("#refreshPrinters").onclick=()=>safe(()=>loadPrinters());});
