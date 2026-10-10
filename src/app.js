@@ -62,8 +62,10 @@ function bindEvents(){
     if(sendWhatsApp){
       const lines=sale.items.map(x=>"- "+x.name+" — "+x.qty+" "+x.unit+" × "+money(x.price)+" = "+money(x.line));
       const message=[db.settings.shop||"My Store","Bill: "+sale.id,"Date: "+sale.date+" "+sale.time,"",...lines,"","Total: "+money(sale.total),"Payment: "+sale.payment,"Thank you for shopping with us!"].join("\n");
-      const url="https://wa.me/"+phone+"?text="+encodeURIComponent(message);
-      if(window.posPrinter?.openWhatsApp)window.posPrinter.openWhatsApp(url).then(r=>{if(!r?.success)alert(r?.error||"Could not open WhatsApp.");}).catch(()=>alert("Could not open WhatsApp. Please check your default browser."));
+      const encodedText=encodeURIComponent(message);
+      const desktopUrl="whatsapp://send?phone="+phone+"&text="+encodedText;
+      const webUrl="https://wa.me/"+phone+"?text="+encodedText;
+      if(window.posPrinter?.openWhatsApp)window.posPrinter.openWhatsApp({desktopUrl,webUrl}).then(r=>{if(!r?.success)alert(r?.error||"Could not open WhatsApp.");}).catch(()=>alert("Could not open WhatsApp. Please check that WhatsApp Desktop or your browser is installed."));
       else alert("WhatsApp sharing is unavailable in this build.");
     }else{
       const shouldPrint=confirm("Sale completed: "+sale.id+" · "+money(total)+"\n\nPrint receipt now?");
