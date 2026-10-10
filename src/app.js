@@ -53,7 +53,7 @@ function bindEvents(){
   safe(()=>{$("#addItem").onclick=()=>safe(()=>{let p=db.products.find(x=>x.id===$("#productSelect").value),q=+$("#qty").value||0;if(!p||q<=0)return alert("Select a product and enter a quantity.");let factor=$("#unit").value==="g"&&p.unit==="kg"?0.001:1;let qty=q*factor;cart.push({productId:p.id,name:p.name,qty,unit:p.unit,price:p.price,cost:p.cost,stock:p.stock,line:qty*p.price,costTotal:qty*p.cost});renderCart()});});
   safe(()=>{$("#cart").onclick=e=>{if(e.target.classList.contains("remove")){cart.splice(+e.target.dataset.i,1);renderCart()}};});
   safe(()=>{$("#clearCart").onclick=()=>{cart=[];renderCart()};});
-  function completeSale(sendWhatsApp){
+  async function completeSale(sendWhatsApp){
     if(!cart.length)return alert("Add at least one item.");
     let sub=cart.reduce((a,x)=>a+x.line,0),disc=+$("#discount").value||0,total=Math.max(0,sub-disc),cash=+$("#cash").value||0;
     if($("#payment").value==="Cash"&&cash<total)return alert("Cash received is less than the total.");
