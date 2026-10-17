@@ -69,7 +69,9 @@ function bindEvents(){
   safe(()=>{$$("[data-go]").forEach(b=>b.onclick=()=>safe(()=>go(b.dataset.go)));});
   safe(()=>{$("#quickBill").onclick=()=>safe(()=>go("billing"));});
   safe(()=>{$("#newProduct").onclick=()=>safe(()=>productModal());});
-  safe(()=>{$("#newExpense").onclick=()=>safe(()=>expenseModal());});\n  safe(()=>{$("#newPurchase").onclick=()=>safe(()=>purchaseModal());});\n  safe(()=>{$("#purchaseSearch").oninput=renderPurchases;});
+  safe(()=>{$("#newExpense").onclick=()=>safe(()=>expenseModal());});
+  safe(()=>{$("#newPurchase").onclick=()=>safe(()=>purchaseModal());});
+  safe(()=>{$("#purchaseSearch").oninput=renderPurchases;});
   safe(()=>{$("#closeModal").onclick=()=>safe(closeModal);});
   safe(()=>{$("#productSearch").oninput=renderProducts;});
   safe(()=>{$("#salesSearch").oninput=renderSales;});
