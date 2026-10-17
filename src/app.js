@@ -23,6 +23,72 @@ function purchasePaymentModal(pid){
  $("#cancel").onclick=closeModal;$("#savePayment").onclick=()=>{const amount=+$("#payAmount").value||0;if(amount<=0||amount>Math.max(0,p.total-p.paid))return alert("Enter a payment amount up to the outstanding balance.");const payment={id:id(),date:$("#payDate").value||today(),amount,method:$("#payMethod").value,note:$("#payNote").value.trim()};p.payments=p.payments||[];p.payments.push(payment);p.paid+=amount;closeModal();save()};
 }
 
+
+let photoImportRows=[];
+function photoImportModal(){
+  modal('<h2>AI Bulk Product Import</h2><p class="hint">Upload a clear photo of a handwritten product list, price list, or supplier receipt. AI will extract product names and clearly labelled prices. Check every row before importing.</p><label>Photo (JPG, PNG, WEBP)<input id="photoProductFile" type="file" accept="image/jpeg,image/png,image/webp"></label><p class="hint" id="aiKeyStatus">Checking secure API-key setup…</p><label>OpenAI API key<input id="photoAIKey" type="password" autocomplete="off" placeholder="Paste your own API key here"></label><div class="modal-actions" style="justify-content:space-between"><button class="ghost" id="savePhotoAIKey">Save API Key Securely</button><button class="primary" id="analyzeProductPhoto">Analyze Photo</button></div><p class="hint">The key is encrypted in this Windows user account and is not stored in the product database. The selected photo is sent to OpenAI for analysis. API usage may cost money.</p><div id="photoProductReview"></div><div class="modal-actions" id="photoImportActions" style="display:none"><button class="ghost" id="cancelPhotoImport">Cancel</button><button class="primary" id="applyPhotoProducts">Import Reviewed Products</button></div>');
+  photoImportRows=[];
+  const status=$("#aiKeyStatus");
+  if(!window.posAI){status.textContent="AI import is unavailable in this build.";return}
+  window.posAI.getKeyStatus().then(r=>{
+    status.textContent=!r.secureStorageAvailable?"Secure key storage is unavailable on this computer. The key will not be saved.":r.configured?"An encrypted API key is saved on this PC. Enter a new key only if you want to replace it.":"No API key saved yet. Add your own OpenAI API key below.";
+  }).catch(()=>status.textContent="Could not check API-key setup.");
+  $("#savePhotoAIKey").onclick=async()=>{
+    const key=$("#photoAIKey").value.trim();
+    if(!key)return alert("Paste your OpenAI API key first.");
+    const r=await window.posAI.saveKey(key);
+    if(r.success){$("#photoAIKey").value="";status.textContent="API key saved securely on this PC.";alert("API key saved securely.");}
+    else alert(r.error||"Could not save the API key.");
+  };
+  $("#analyzeProductPhoto").onclick=async()=>{
+    const file=$("#photoProductFile").files?.[0];
+    if(!file)return alert("Choose a photo first.");
+    if(file.size>8*1024*1024)return alert("Choose a photo smaller than 8 MB.");
+    if(!["image/jpeg","image/png","image/webp"].includes(file.type))return alert("Use a JPG, PNG, or WEBP image.");
+    const button=$("#analyzeProductPhoto");button.disabled=true;button.textContent="Analyzing…";
+    try{
+      const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error("Could not read this file."));reader.readAsDataURL(file)});
+      const result=await window.posAI.analyzeImage({dataUrl,mime:file.type});
+      if(!result.success)throw new Error(result.error||"Image analysis failed.");
+      photoImportRows=result.products.map(p=>({...p,selected:true,priceText:p.price===null?"":String(p.price),costText:p.cost===null?"":String(p.cost)}));
+      renderPhotoProductReview();
+    }catch(error){alert(error.message||"Could not analyze this photo.")}
+    finally{button.disabled=false;button.textContent="Analyze Photo"}
+  };
+  $("#cancelPhotoImport").onclick=closeModal;
+  $("#applyPhotoProducts").onclick=()=>{
+    let added=0,updated=0,skipped=0;
+    for(let i=0;i<photoImportRows.length;i++){
+      const row=photoImportRows[i];if(!row.selected){skipped++;continue}
+      const name=String($("#photoName"+i)?.value||row.name).trim();
+      const priceText=$("#photoPrice"+i)?.value??row.priceText;
+      const costText=$("#photoCost"+i)?.value??row.costText;
+      const unit=$("#photoUnit"+i)?.value||row.unit;
+      if(!name){skipped++;continue}
+      const price=priceText.trim()===""?null:Number(priceText),cost=costText.trim()===""?null:Number(costText);
+      if((price!==null&&(!Number.isFinite(price)||price<0))||(cost!==null&&(!Number.isFinite(cost)||cost<0))){alert("Fix invalid prices or costs before importing.");return}
+      const existing=db.products.find(p=>p.name.trim().toLocaleLowerCase()===name.toLocaleLowerCase());
+      if(existing){
+        if(price!==null)existing.price=price;
+        if(cost!==null)existing.cost=cost;
+        if(unit&&unit!=="other")existing.unit=unit;
+        updated++;
+      }else{
+        db.products.push({id:id(),name,price:price??0,cost:cost??0,stock:0,unit:unit==="other"?"unit":unit});
+        added++;
+      }
+    }
+    closeModal();save();go("products");alert("Import complete. Added: "+added+" · Updated: "+updated+" · Skipped: "+skipped+". Existing stock quantities were not changed.");
+  };
+}
+function renderPhotoProductReview(){
+  const host=$("#photoProductReview"),actions=$("#photoImportActions");
+  if(!photoImportRows.length){host.innerHTML='<p class="empty">No products were confidently identified. Try a clearer, well-lit photo.</p>';actions.style.display="none";return}
+  host.innerHTML='<p class="hint">'+photoImportRows.length+' product row(s) found. Blank prices were unclear or not present. Existing products match by exact name and will have only supplied price/cost fields updated; stock is never changed.</p><div style="overflow:auto;max-height:300px"><table class="table"><thead><tr><th>Import</th><th>Product</th><th>Sale price</th><th>Cost</th><th>Unit</th></tr></thead><tbody>'+photoImportRows.map((p,i)=>'<tr><td><input type="checkbox" id="photoSelect'+i+'" '+(p.selected?'checked':'')+'></td><td><input id="photoName'+i+'" value="'+esc(p.name)+'" style="min-width:130px;width:100%"></td><td><input id="photoPrice'+i+'" type="number" min="0" step="0.01" value="'+esc(p.priceText)+'" style="width:100px"></td><td><input id="photoCost'+i+'" type="number" min="0" step="0.01" value="'+esc(p.costText)+'" style="width:100px"></td><td><select id="photoUnit'+i+'">'+["kg","g","unit","L","other"].map(u=>'<option value="'+u+'" '+(p.unit===u?'selected':'')+'>'+u+'</option>').join("")+'</select></td></tr>').join("")+'</tbody></table></div>';
+  photoImportRows.forEach((p,i)=>{$("#photoSelect"+i).onchange=e=>p.selected=e.target.checked});
+  actions.style.display="flex";
+}
+
 function productModal(pid){let p=db.products.find(x=>x.id===pid)||{name:"",price:"",cost:"",stock:"",unit:"kg"};modal('<h2>'+(pid?"Edit":"Add")+' Product</h2><label>Product name<input id="mName" value="'+esc(p.name)+'"></label><label>Sale rate per unit<input id="mPrice" type="number" step="0.01" value="'+p.price+'"></label><label>Cost rate per unit<input id="mCost" type="number" step="0.01" value="'+p.cost+'"></label><label>Stock<input id="mStock" type="number" step="0.001" value="'+p.stock+'"></label><label>Unit<select id="mUnit"><option '+(p.unit==="kg"?"selected":"")+'>kg</option><option '+(p.unit==="g"?"selected":"")+'>g</option><option '+(p.unit==="unit"?"selected":"")+'>unit</option><option '+(p.unit==="L"?"selected":"")+'>L</option></select></label><div class="modal-actions"><button class="ghost" id="cancel">Cancel</button><button class="primary" id="saveP">Save</button></div>');$("#saveP").onclick=()=>{let obj={id:pid||id(),name:$("#mName").value.trim(),price:+$("#mPrice").value||0,cost:+$("#mCost").value||0,stock:+$("#mStock").value||0,unit:$("#mUnit").value};if(!obj.name)return alert("Enter a product name.");let i=db.products.findIndex(x=>x.id===obj.id);if(i>=0)db.products[i]=obj;else db.products.push(obj);closeModal();save()};$("#cancel").onclick=closeModal}function expenseModal(){modal('<h2>Add Expense</h2><label>Description<input id="eNote" placeholder="Electricity, transport, rent..."></label><label>Amount<input id="eAmount" type="number" min="0" step="0.01"></label><div class="modal-actions"><button class="ghost" id="cancel">Cancel</button><button class="primary" id="saveE">Save</button></div>');$("#saveE").onclick=()=>{let note=$("#eNote").value.trim(),amount=+$("#eAmount").value||0;if(!note||amount<=0)return alert("Enter a description and amount.");db.expenses.push({id:id(),date:today(),note,amount});closeModal();save()};$("#cancel").onclick=closeModal}function modal(html){$("#modalContent").innerHTML=html;$("#modal").classList.add("show")}function closeModal(){$("#modal").classList.remove("show")}function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 async function loadPrinters(){
   const sel=$("#setPrinter"),status=$("#printerStatus");
@@ -69,6 +135,7 @@ function bindEvents(){
   safe(()=>{$$("[data-go]").forEach(b=>b.onclick=()=>safe(()=>go(b.dataset.go)));});
   safe(()=>{$("#quickBill").onclick=()=>safe(()=>go("billing"));});
   safe(()=>{$("#newProduct").onclick=()=>safe(()=>productModal());});
+  safe(()=>{$("#importProductsPhoto").onclick=()=>safe(()=>photoImportModal());});
   safe(()=>{$("#newExpense").onclick=()=>safe(()=>expenseModal());});
   safe(()=>{$("#newPurchase").onclick=()=>safe(()=>purchaseModal());});
   safe(()=>{$("#purchaseSearch").oninput=renderPurchases;});
