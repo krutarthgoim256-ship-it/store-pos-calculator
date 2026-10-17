@@ -1,4 +1,4 @@
-const {app,BrowserWindow,Menu,ipcMain,shell,dialog}=require("electron");const path=require("path");const fs=require("fs");
+const {app,BrowserWindow,Menu,ipcMain,shell,dialog,safeStorage}=require("electron");const path=require("path");const fs=require("fs");
 
 function createWindow(){
   const w=new BrowserWindow({
@@ -102,6 +102,64 @@ ipcMain.handle("print-receipt",async(event,args)=>{
     if(!printWin.isDestroyed())printWin.close();
     return {success:false,error:error.message};
   }
+});
+
+
+function aiKeyPath(){return path.join(app.getPath("userData"),"openai-api-key.enc")}
+function readAIKey(){
+  try{
+    if(!safeStorage.isEncryptionAvailable())return "";
+    const encrypted=fs.readFileSync(aiKeyPath());
+    return safeStorage.decryptString(encrypted);
+  }catch{return ""}
+}
+ipcMain.handle("ai-key-status",async()=>({configured:Boolean(readAIKey()),secureStorageAvailable:safeStorage.isEncryptionAvailable()}));
+ipcMain.handle("ai-save-key",async(_event,key)=>{
+  if(!safeStorage.isEncryptionAvailable())return {success:false,error:"Windows secure storage is unavailable. The API key was not saved."};
+  if(typeof key!=="string"||!key.trim()||key.trim().length>300)return {success:false,error:"Enter a valid API key."};
+  try{fs.writeFileSync(aiKeyPath(),safeStorage.encryptString(key.trim()),{mode:0o600});return {success:true}}
+  catch(error){return {success:false,error:"Could not securely save the API key: "+error.message}}
+});
+ipcMain.handle("ai-analyze-product-image",async(_event,args)=>{
+  const apiKey=readAIKey();
+  if(!apiKey)return {success:false,error:"Add and save your OpenAI API key first."};
+  const data=args?.dataUrl,mime=args?.mime;
+  if(!["image/jpeg","image/png","image/webp"].includes(mime)||typeof data!=="string"||!data.startsWith("data:"+mime+";base64,"))return {success:false,error:"Choose a JPG, PNG, or WEBP image."};
+  const base64=data.slice(data.indexOf(",")+1);
+  if(base64.length>11000000)return {success:false,error:"Image is too large. Choose an image under about 8 MB."};
+  try{
+    const response=await fetch("https://api.openai.com/v1/chat/completions",{
+      method:"POST",
+      headers:{"Authorization":"Bearer "+apiKey,"Content-Type":"application/json"},
+      body:JSON.stringify({
+        model:"gpt-4.1-mini",
+        response_format:{type:"json_object"},
+        messages:[
+          {role:"system",content:"Extract product rows from the provided handwritten inventory list, product price list, or supplier receipt. Return only a JSON object with key products, an array of objects with fields name (string), price (number or null), cost (number or null), unit (one of kg, g, unit, L, or other). price means selling price only when clearly labelled as retail/sale price. cost means purchase/wholesale cost only when clearly labelled. Do not guess unclear values; use null. Do not treat receipt quantities as current stock. Ignore totals, taxes, payment details, customer information, and non-product rows. Deduplicate repeated rows where safe. Never invent a product name or number."},
+          {role:"user",content:[
+            {type:"text",text:"Read this image carefully. Handwriting may be unclear. Extract every clearly identifiable product and its clearly labelled prices. If a number or name is uncertain, leave that field blank/null rather than guessing."},
+            {type:"image_url",image_url:{url:data,detail:"high"}}
+          ]}
+        ],
+        max_tokens:5000
+      })
+    });
+    const payload=await response.json().catch(()=>({}));
+    if(!response.ok){
+      const message=payload?.error?.message||("OpenAI API request failed ("+response.status+").");
+      return {success:false,error:response.status===401?"The API key was rejected. Check the key and try again.":response.status===429?"API rate limit or billing limit reached. Check your API account billing/limits.":message};
+    }
+    const content=payload?.choices?.[0]?.message?.content||"";
+    const parsed=JSON.parse(content);
+    if(!Array.isArray(parsed.products))return {success:false,error:"The AI response did not contain a product list. Try a clearer photo."};
+    const products=parsed.products.slice(0,300).map(x=>({
+      name:typeof x.name==="string"?x.name.trim().slice(0,120):"",
+      price:Number.isFinite(Number(x.price))&&x.price!==null?Math.max(0,Number(x.price)):null,
+      cost:Number.isFinite(Number(x.cost))&&x.cost!==null?Math.max(0,Number(x.cost)):null,
+      unit:["kg","g","unit","L","other"].includes(x.unit)?x.unit:"unit"
+    })).filter(x=>x.name);
+    return {success:true,products};
+  }catch(error){return {success:false,error:"Could not read the image. Check your internet connection and API access, then try again. ("+error.message+")"}}
 });
 
 app.whenReady().then(()=>{
