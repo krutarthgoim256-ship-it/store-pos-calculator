@@ -5,7 +5,7 @@ function renderPurchases(){
  const q=($("#purchaseSearch")?.value||"").toLowerCase();
  const a=db.purchases.filter(p=>(p.supplier+" "+p.item+" "+p.date+" "+p.notes).toLowerCase().includes(q)).slice().reverse();
  $("#purchasesTable").innerHTML='<table class="table"><thead><tr><th>Date</th><th>Wholesaler</th><th>Item purchased</th><th>Qty</th><th>Total cost</th><th>Paid</th><th>Balance</th><th>Status</th><th></th></tr></thead><tbody>'+a.map(p=>{const balance=Math.max(0,p.total-p.paid);return '<tr><td>'+esc(p.date)+(p.dueDate?'<small>Due '+esc(p.dueDate)+'</small>':'')+'</td><td><b>'+esc(p.supplier)+'</b></td><td>'+esc(p.item)+(p.notes?'<small>'+esc(p.notes)+'</small>':'')+'</td><td>'+p.qty+' '+esc(p.unit)+'</td><td>'+money(p.total)+'</td><td>'+money(p.paid)+'</td><td><b>'+money(balance)+'</b></td><td><span class="pill '+(balance<=0?'paid':'unpaid')+'">'+(balance<=0?'Paid':p.paid>0?'Part-paid':'Unpaid')+'</span></td><td><button class="ghost payPurchase" data-id="'+p.id+'">'+(balance>0?'Record payment':'Payments')+'</button></td></tr>'}).join("")+'</tbody></table>'+(a.length?'':'<div class="empty">No purchases recorded yet. Add every wholesale purchase here, even if you have not paid for it.</div>');
- $(".payPurchase").forEach(b=>b.onclick=()=>purchasePaymentModal(b.dataset.id));
+ $$(".payPurchase").forEach(b=>b.onclick=()=>purchasePaymentModal(b.dataset.id));
 }
 function purchaseModal(){
  const productOptions='<option value="">Manual item (do not change stock)</option>'+db.products.map(p=>'<option value="'+p.id+'">'+esc(p.name)+' — stock '+p.stock+' '+esc(p.unit)+'</option>').join("");
