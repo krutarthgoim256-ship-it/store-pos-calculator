@@ -5,7 +5,10 @@ contextBridge.exposeInMainWorld("posPrinter", {
   saveReceiptPdf: (args) => ipcRenderer.invoke("save-receipt-pdf", args),
   getPrinters: () => ipcRenderer.invoke("get-printers"),
   openWhatsApp: (url) => ipcRenderer.invoke("open-whatsapp", url),
-  saveAIKey: (key) => ipcRenderer.invoke("ai-save-key", key),
-  getAIKeyStatus: () => ipcRenderer.invoke("ai-key-status"),
-  analyzeProductImage: (args) => ipcRenderer.invoke("ai-analyze-product-image", args)
+});
+
+contextBridge.exposeInMainWorld("posAI", {
+  saveKey: (key) => ipcRenderer.invoke("ai-save-key", key),
+  getKeyStatus: () => ipcRenderer.invoke("ai-key-status"),
+  analyzeImage: (args) => ipcRenderer.invoke("ai-analyze-product-image", args)
 });
