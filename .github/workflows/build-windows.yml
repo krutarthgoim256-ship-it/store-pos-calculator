@@ -48,8 +48,31 @@ jobs:
           }
           throw "npm install failed after 3 attempts."
 
-      - name: Build Windows app
-        run: npm run build
+      - name: Cache electron-builder resources
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/electron-builder-cache
+          key: electron-builder-${{ runner.os }}-${{ hashFiles('package.json') }}
+          restore-keys: |
+            electron-builder-${{ runner.os }}-
+
+      - name: Build Windows app (retry transient download failures)
+        shell: pwsh
+        env:
+          ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
+        run: |
+          $attempt = 1
+          while ($attempt -le 3) {
+            Write-Host "Windows packaging attempt $attempt of 3"
+            npm run build
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            if ($attempt -lt 3) {
+              Write-Host "Packaging failed; waiting 20 seconds before retry."
+              Start-Sleep -Seconds 20
+            }
+            $attempt++
+          }
+          throw "Windows packaging failed after 3 attempts."
 
       - name: Read app version
         id: version
