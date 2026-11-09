@@ -154,8 +154,8 @@ ipcMain.handle("ai-analyze-product-image",async(_event,args)=>{
   if(!["image/jpeg","image/png","image/webp"].includes(mime)||typeof data!=="string"||!data.startsWith("data:"+mime+";base64,"))return {success:false,error:"Choose a JPG, PNG, or WEBP image."};
   const base64=data.slice(data.indexOf(",")+1);
   if(base64.length>11000000)return {success:false,error:"Image is too large. Choose an image under about 8 MB."};
-  const instructions="Extract product rows from the provided handwritten inventory list, product price list, or supplier receipt. Return only a JSON object with key products, an array of objects with fields name (string), price (number or null), cost (number or null), unit (one of kg, g, unit, L, or other). price means selling price only when clearly labelled as retail/sale price. cost means purchase/wholesale cost only when clearly labelled. Do not guess unclear values; use null. Do not treat receipt quantities as current stock. Ignore totals, taxes, payment details, customer information, and non-product rows. Deduplicate repeated rows where safe. Never invent a product name or number.";
-  const userText="Read this image carefully. Handwriting may be unclear. Extract every clearly identifiable product and its clearly labelled prices. If a number or name is uncertain, leave that field blank/null rather than guessing.";
+  const instructions="Extract a supplier invoice or purchase list. Return only JSON with supplier (string or empty), invoiceNumber (string or empty), invoiceDate (YYYY-MM-DD or empty), dueDate (YYYY-MM-DD or empty), amountPaid (number or null), and products (array). Each product has name (string), quantity (number or null), unit (kg, g, unit, L, bag, box, other), unitCost (number or null), salePrice (number or null). quantity is the purchased quantity on this invoice, NOT current stock. unitCost is purchase price per unit. salePrice only when clearly shown as retail/selling price. Do not confuse line total with unit cost; if only line total and quantity are clear, calculate unitCost as line total divided by quantity. Do not guess unclear values; use null. Ignore taxes and grand totals for line prices. Never invent supplier, name, or number.";
+  const userText="Read this supplier invoice carefully. Extract supplier and invoice details plus each purchased product, quantity, unit, and unit purchase cost. A receipt quantity is a new purchase quantity. If unclear, leave it blank/null rather than guessing.";
   try{
     let response,payload;
     if(config.provider==="gemini"){
@@ -170,7 +170,7 @@ ipcMain.handle("ai-analyze-product-image",async(_event,args)=>{
       const content=payload?.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("")||"";
       const parsed=JSON.parse(content);
       if(!Array.isArray(parsed.products))return {success:false,error:"The AI response did not contain a product list. Try a clearer photo."};
-      return normalizeAIProducts(parsed.products);
+      return normalizeAIInvoice(parsed);
     }
     let base;
     if(config.provider==="openai")base="https://api.openai.com/v1";
@@ -193,17 +193,19 @@ ipcMain.handle("ai-analyze-product-image",async(_event,args)=>{
     const content=payload?.choices?.[0]?.message?.content||"";
     const parsed=JSON.parse(typeof content==="string"?content:JSON.stringify(content));
     if(!Array.isArray(parsed.products))return {success:false,error:"The AI response did not contain a product list. Try a clearer photo."};
-    return normalizeAIProducts(parsed.products);
+    return normalizeAIInvoice(parsed);
   }catch(error){return {success:false,error:"Could not read the image. Check the provider endpoint, model's image support, internet connection, and API access. ("+error.message+")"}}
 });
-function normalizeAIProducts(rows){
-  const products=rows.slice(0,300).map(x=>({
+function normalizeAIInvoice(data){
+  const num=v=>v!==null&&v!==""&&Number.isFinite(Number(v))?Math.max(0,Number(v)):null;
+  const products=(Array.isArray(data.products)?data.products:[]).slice(0,300).map(x=>({
     name:typeof x.name==="string"?x.name.trim().slice(0,120):"",
-    price:x.price!==null&&x.price!==""&&Number.isFinite(Number(x.price))?Math.max(0,Number(x.price)):null,
-    cost:x.cost!==null&&x.cost!==""&&Number.isFinite(Number(x.cost))?Math.max(0,Number(x.cost)):null,
-    unit:["kg","g","unit","L","other"].includes(x.unit)?x.unit:"unit"
+    quantity:num(x.quantity),
+    unit:["kg","g","unit","L","bag","box","other"].includes(x.unit)?x.unit:"unit",
+    unitCost:num(x.unitCost),
+    salePrice:num(x.salePrice)
   })).filter(x=>x.name);
-  return {success:true,products};
+  return {success:true,supplier:typeof data.supplier==="string"?data.supplier.trim().slice(0,120):"",invoiceNumber:typeof data.invoiceNumber==="string"?data.invoiceNumber.trim().slice(0,80):"",invoiceDate:typeof data.invoiceDate==="string"?data.invoiceDate:"",dueDate:typeof data.dueDate==="string"?data.dueDate:"",amountPaid:num(data.amountPaid),products};
 }
 
 app.whenReady().then(()=>{
