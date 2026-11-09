@@ -55,6 +55,7 @@ jobs:
           key: electron-builder-${{ runner.os }}-${{ hashFiles('package.json') }}
           restore-keys: |
             electron-builder-${{ runner.os }}-
+          save-always: true
 
       - name: Build Windows app (retry transient download failures)
         shell: pwsh
