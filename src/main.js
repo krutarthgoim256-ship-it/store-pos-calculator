@@ -109,9 +109,18 @@ function aiConfigPath(){return path.join(app.getPath("userData"),"ai-provider-co
 function readAIConfig(){
   try{
     if(!safeStorage.isEncryptionAvailable())return null;
-    const encrypted=fs.readFileSync(aiConfigPath());
-    const config=JSON.parse(safeStorage.decryptString(encrypted));
-    return config&&typeof config==="object"?config:null;
+    if(fs.existsSync(aiConfigPath())){
+      const encrypted=fs.readFileSync(aiConfigPath());
+      const config=JSON.parse(safeStorage.decryptString(encrypted));
+      return config&&typeof config==="object"?config:null;
+    }
+    // Migrate the previous OpenAI-only encrypted key without exposing it.
+    const legacyPath=path.join(app.getPath("userData"),"openai-api-key.enc");
+    if(fs.existsSync(legacyPath)){
+      const legacyKey=safeStorage.decryptString(fs.readFileSync(legacyPath));
+      return {provider:"openai",apiKey:legacyKey,model:"gpt-4.1-mini",baseUrl:""};
+    }
+    return null;
   }catch{return null}
 }
 ipcMain.handle("ai-key-status",async()=>{
@@ -122,7 +131,8 @@ ipcMain.handle("ai-save-config",async(_event,input)=>{
   if(!safeStorage.isEncryptionAvailable())return {success:false,error:"Windows secure storage is unavailable. The API key was not saved."};
   if(!input||typeof input!=="object")return {success:false,error:"Enter provider settings."};
   const provider=String(input.provider||"openai");
-  const apiKey=String(input.apiKey||"").trim();
+  const previous=readAIConfig();
+  const apiKey=String(input.apiKey||"").trim()||String(previous?.apiKey||"");
   const model=String(input.model||"").trim();
   const baseUrl=String(input.baseUrl||"").trim();
   const allowed=["openai","gemini","openrouter","groq","together","custom"];
