@@ -56,7 +56,6 @@ function photoImportModal(){
   }).catch(()=>status.textContent="Could not check API-key setup.");
   $("#savePhotoAIKey").onclick=async()=>{
     const key=$("#photoAIKey").value.trim();
-    if(!key)return alert("Paste your API key first.");
     const r=await window.posAI.saveConfig({provider:provider.value,apiKey:key,model:model.value.trim(),baseUrl:$("#photoAIEndpoint").value.trim()});
     if(r.success){$("#photoAIKey").value="";status.textContent="Encrypted provider settings saved on this PC.";alert("AI provider settings saved securely.");}
     else alert(r.error||"Could not save provider settings.");
