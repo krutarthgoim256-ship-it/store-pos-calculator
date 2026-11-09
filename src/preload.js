@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld("posPrinter", {
 });
 
 contextBridge.exposeInMainWorld("posAI", {
-  saveKey: (key) => ipcRenderer.invoke("ai-save-key", key),
+  saveConfig: (config) => ipcRenderer.invoke("ai-save-config", config),
   getKeyStatus: () => ipcRenderer.invoke("ai-key-status"),
   analyzeImage: (args) => ipcRenderer.invoke("ai-analyze-product-image", args)
 });

@@ -8,14 +8,33 @@ function renderPurchases(){
  $$(".payPurchase").forEach(b=>b.onclick=()=>purchasePaymentModal(b.dataset.id));
 }
 function purchaseModal(){
- const productOptions='<option value="">Manual item (do not change stock)</option>'+db.products.map(p=>'<option value="'+p.id+'">'+esc(p.name)+' — stock '+p.stock+' '+esc(p.unit)+'</option>').join("");
- modal('<h2>Record Wholesale Purchase</h2><p class="hint">Record the full invoice amount, then how much you paid now. The remaining balance becomes money owed to the wholesaler.</p><label>Wholesaler / Supplier<input id="buySupplier" placeholder="Supplier name" required></label><label>Existing product (optional)<select id="buyProduct">'+productOptions+'</select></label><label>Item purchased<input id="buyItem" placeholder="e.g. Rice, onions, packaging" required></label><div class="modalgrid"><label>Quantity<input id="buyQty" type="number" min="0.001" step="0.001" value="1"></label><label>Unit<select id="buyUnit"><option>kg</option><option>g</option><option>unit</option><option>L</option><option>bag</option><option>box</option><option>other</option></select></label></div><label>Purchase price per unit (₹)<input id="buyCost" type="number" min="0" step="0.01" value="0"></label><label>Total invoice amount (₹)<input id="buyTotal" type="number" min="0" step="0.01" value="0"></label><label>Amount paid now (₹)<input id="buyPaid" type="number" min="0" step="0.01" value="0"></label><div class="modalgrid"><label>Purchase date<input id="buyDate" type="date" value="'+today()+'"></label><label>Payment due date (optional)<input id="buyDue" type="date"></label></div><label>Notes / invoice number<input id="buyNotes" placeholder="Optional"></label><p class="hint" id="buyBalance">Balance due: ₹0.00</p><div class="modal-actions"><button class="ghost" id="cancel">Cancel</button><button class="primary" id="savePurchase">Save Purchase</button></div>');
+ const productOptions='<option value="">Auto-match or create product</option>'+db.products.map(p=>'<option value="'+p.id+'">'+esc(p.name)+' — stock '+p.stock+' '+esc(p.unit)+'</option>').join("");
+ modal('<h2>Record Wholesale Purchase</h2><p class="hint">Every saved purchase automatically adds its quantity to Products. Existing products get their stock increased and their purchase cost updated to the latest rate.</p><label>Wholesaler / Supplier<input id="buySupplier" placeholder="Supplier name" required></label><label>Existing product (optional)<select id="buyProduct">'+productOptions+'</select></label><label>Item purchased<input id="buyItem" placeholder="e.g. Rice, onions, packaging" required></label><div class="modalgrid"><label>Quantity<input id="buyQty" type="number" min="0.001" step="0.001" value="1"></label><label>Unit<select id="buyUnit"><option>kg</option><option>g</option><option>unit</option><option>L</option><option>bag</option><option>box</option><option>other</option></select></label></div><label>Purchase price per unit (₹)<input id="buyCost" type="number" min="0" step="0.01" value="0"></label><label>Total invoice amount (₹)<input id="buyTotal" type="number" min="0" step="0.01" value="0"></label><label>Amount paid now (₹)<input id="buyPaid" type="number" min="0" step="0.01" value="0"></label><div class="modalgrid"><label>Purchase date<input id="buyDate" type="date" value="'+today()+'"></label><label>Payment due date (optional)<input id="buyDue" type="date"></label></div><label>Notes / invoice number<input id="buyNotes" placeholder="Optional"></label><p class="hint" id="buyBalance">Balance due: ₹0.00</p><div class="modal-actions"><button class="ghost" id="cancel">Cancel</button><button class="primary" id="savePurchase">Save Purchase</button></div>');
  const updateTotal=()=>{const q=+$("#buyQty").value||0,c=+$("#buyCost").value||0;$("#buyTotal").value=(q*c).toFixed(2);updateBalance()};
  const updateBalance=()=>{$("#buyBalance").textContent="Balance due: "+money(Math.max(0,(+$("#buyTotal").value||0)-(+$("#buyPaid").value||0)))};
  $("#buyProduct").onchange=()=>{const p=db.products.find(x=>x.id===$("#buyProduct").value);if(p){$("#buyItem").value=p.name;$("#buyUnit").value=p.unit;$("#buyCost").value=p.cost;updateTotal()}};
  $("#buyQty").oninput=updateTotal;$("#buyCost").oninput=updateTotal;$("#buyTotal").oninput=updateBalance;$("#buyPaid").oninput=updateBalance;
  $("#cancel").onclick=closeModal;
- $("#savePurchase").onclick=()=>{const supplier=$("#buySupplier").value.trim(),item=$("#buyItem").value.trim(),qty=+$("#buyQty").value||0,unit=$("#buyUnit").value,unitCost=+$("#buyCost").value||0,total=+$("#buyTotal").value||0,paid=+$("#buyPaid").value||0,productId=$("#buyProduct").value;if(!supplier||!item||qty<=0||paid<0||paid>total)return alert("Enter a supplier, item, positive quantity, and a paid amount no greater than the total.");const purchase={id:"P-"+Date.now().toString().slice(-7),supplier,item,qty,unit,unitCost,total,paid,date:$("#buyDate").value||today(),dueDate:$("#buyDue").value||"",notes:$("#buyNotes").value.trim(),productId,payments:paid?[{id:id(),date:$("#buyDate").value||today(),amount:paid,method:"",note:"Initial payment"}]:[]};db.purchases.push(purchase);if(productId){const p=db.products.find(x=>x.id===productId);if(p){p.stock+=qty;p.cost=unitCost||p.cost;p.unit=unit}}closeModal();save();go("purchases")};
+ $("#savePurchase").onclick=()=>{
+  const supplier=$("#buySupplier").value.trim(),item=$("#buyItem").value.trim(),qty=+$("#buyQty").value||0,unit=$("#buyUnit").value,unitCost=+$("#buyCost").value||0,total=+$("#buyTotal").value||0,paid=+$("#buyPaid").value||0,selectedId=$("#buyProduct").value;
+  if(!supplier||!item||qty<=0||unitCost<0||total<0||paid<0||paid>total)return alert("Enter a supplier, item, positive quantity, valid costs, and a paid amount no greater than the total.");
+  let product=selectedId?db.products.find(x=>x.id===selectedId):db.products.find(x=>x.name.trim().toLocaleLowerCase()===item.toLocaleLowerCase());
+  let stockQty=qty,latestCost=unitCost;
+  if(product){
+    if(product.unit!==unit){
+      if(product.unit==="kg"&&unit==="g"){stockQty=qty/1000;latestCost=unitCost*1000}
+      else if(product.unit==="g"&&unit==="kg"){stockQty=qty*1000;latestCost=unitCost/1000}
+      else return alert("This product is already measured in "+product.unit+" but this purchase is in "+unit+". Change the purchase unit or select/create a separate product.");
+    }
+    product.stock=Number(product.stock||0)+stockQty;
+    product.cost=latestCost;
+  }else{
+    product={id:id(),name:item,price:0,cost:unitCost,stock:qty,unit};
+    db.products.push(product);
+  }
+  const purchase={id:"P-"+Date.now().toString().slice(-7),supplier,item,qty,unit,unitCost,total,paid,date:$("#buyDate").value||today(),dueDate:$("#buyDue").value||"",notes:$("#buyNotes").value.trim(),productId:product.id,payments:paid?[{id:id(),date:$("#buyDate").value||today(),amount:paid,method:"",note:"Initial payment"}]:[]};
+  db.purchases.push(purchase);closeModal();save();go("purchases");
+ };
 }
 function purchasePaymentModal(pid){
  const p=db.purchases.find(x=>x.id===pid);if(!p)return;const balance=Math.max(0,p.total-p.paid);
@@ -26,65 +45,65 @@ function purchasePaymentModal(pid){
 
 let photoImportRows=[];
 function photoImportModal(){
-  modal('<h2>AI Bulk Product Import</h2><p class="hint">Upload a clear photo of a handwritten product list, price list, or supplier receipt. AI will extract product names and clearly labelled prices. Check every row before importing.</p><label>Photo (JPG, PNG, WEBP)<input id="photoProductFile" type="file" accept="image/jpeg,image/png,image/webp"></label><p class="hint" id="aiKeyStatus">Checking secure API-key setup…</p><label>OpenAI API key<input id="photoAIKey" type="password" autocomplete="off" placeholder="Paste your own API key here"></label><div class="modal-actions" style="justify-content:space-between"><button class="ghost" id="savePhotoAIKey">Save API Key Securely</button><button class="primary" id="analyzeProductPhoto">Analyze Photo</button></div><p class="hint">The key is encrypted in this Windows user account and is not stored in the product database. The selected photo is sent to OpenAI for analysis. API usage may cost money.</p><div id="photoProductReview"></div><div class="modal-actions" id="photoImportActions" style="display:none"><button class="ghost" id="cancelPhotoImport">Cancel</button><button class="primary" id="applyPhotoProducts">Import Reviewed Products</button></div>');
+  modal('<h2>Import Supplier Invoice</h2><p class="hint">Upload a supplier invoice or purchase list. Review supplier, invoice details, quantities and unit costs before saving. Each selected item becomes its own purchase record and updates product stock.</p><label>Invoice photo (JPG, PNG, WEBP)<input id="photoProductFile" type="file" accept="image/jpeg,image/png,image/webp"></label><p class="hint" id="aiKeyStatus">Checking secure API-key setup…</p><label>AI Provider<select id="photoAIProvider"><option value="openai">OpenAI</option><option value="gemini">Google Gemini</option><option value="openrouter">OpenRouter</option><option value="groq">Groq</option><option value="together">Together AI</option><option value="custom">Custom OpenAI-compatible API</option></select></label><label>API Key<input id="photoAIKey" type="password" autocomplete="off" placeholder="Paste your provider API key"></label><label>Model name<input id="photoAIModel" placeholder="Model ID"></label><label id="photoAIEndpointLabel" style="display:none">Custom API endpoint (HTTPS)<input id="photoAIEndpoint" placeholder="https://your-provider.example/v1"></label><div class="modal-actions" style="justify-content:space-between"><button class="ghost" id="savePhotoAIKey">Save Provider Settings Securely</button><button class="primary" id="analyzeProductPhoto">Analyze Invoice</button></div><p class="hint">Your key is encrypted on this PC. The photo is sent to the selected provider. API usage may cost money. The selected model must support image input.</p><div id="photoProductReview"></div><div class="modal-actions" id="photoImportActions" style="display:none"><button class="ghost" id="cancelPhotoImport">Cancel</button><button class="primary" id="applyPhotoProducts">Save Purchases &amp; Update Stock</button></div>');
   photoImportRows=[];
-  const status=$("#aiKeyStatus");
+  const status=$("#aiKeyStatus"),provider=$("#photoAIProvider"),model=$("#photoAIModel"),endpointLabel=$("#photoAIEndpointLabel");
+  const defaults={openai:"gpt-4.1-mini",gemini:"gemini-2.5-flash",openrouter:"google/gemini-2.5-flash",groq:"meta-llama/llama-4-scout-17b-16e-instruct",together:"meta-llama/Llama-4-Scout-17B-16E-Instruct",custom:""};
+  provider.onchange=()=>{model.value=defaults[provider.value]||"";endpointLabel.style.display=provider.value==="custom"?"block":"none"};
+  provider.onchange();
   if(!window.posAI){status.textContent="AI import is unavailable in this build.";return}
   window.posAI.getKeyStatus().then(r=>{
-    status.textContent=!r.secureStorageAvailable?"Secure key storage is unavailable on this computer. The key will not be saved.":r.configured?"An encrypted API key is saved on this PC. Enter a new key only if you want to replace it.":"No API key saved yet. Add your own OpenAI API key below.";
+    if(r.configured){provider.value=r.provider||"openai";model.value=r.model||defaults[provider.value]||"";$("#photoAIEndpoint").value=r.baseUrl||"";endpointLabel.style.display=provider.value==="custom"?"block":"none";status.textContent="Encrypted provider settings saved on this PC. Enter a new key only if you want to replace it."}
+    else status.textContent=!r.secureStorageAvailable?"Secure key storage is unavailable. The key will not be saved.":"No AI provider configured yet. Choose a provider and add your API key.";
   }).catch(()=>status.textContent="Could not check API-key setup.");
-  $("#savePhotoAIKey").onclick=async()=>{
-    const key=$("#photoAIKey").value.trim();
-    if(!key)return alert("Paste your OpenAI API key first.");
-    const r=await window.posAI.saveKey(key);
-    if(r.success){$("#photoAIKey").value="";status.textContent="API key saved securely on this PC.";alert("API key saved securely.");}
-    else alert(r.error||"Could not save the API key.");
-  };
+  $("#savePhotoAIKey").onclick=async()=>{const r=await window.posAI.saveConfig({provider:provider.value,apiKey:$("#photoAIKey").value.trim(),model:model.value.trim(),baseUrl:$("#photoAIEndpoint").value.trim()});if(r.success){$("#photoAIKey").value="";status.textContent="Encrypted provider settings saved on this PC.";alert("AI provider settings saved securely.")}else alert(r.error||"Could not save provider settings.")};
   $("#analyzeProductPhoto").onclick=async()=>{
-    const file=$("#photoProductFile").files?.[0];
-    if(!file)return alert("Choose a photo first.");
+    const file=$("#photoProductFile").files?.[0];if(!file)return alert("Choose an invoice photo first.");
     if(file.size>8*1024*1024)return alert("Choose a photo smaller than 8 MB.");
     if(!["image/jpeg","image/png","image/webp"].includes(file.type))return alert("Use a JPG, PNG, or WEBP image.");
     const button=$("#analyzeProductPhoto");button.disabled=true;button.textContent="Analyzing…";
     try{
       const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error("Could not read this file."));reader.readAsDataURL(file)});
-      const result=await window.posAI.analyzeImage({dataUrl,mime:file.type});
-      if(!result.success)throw new Error(result.error||"Image analysis failed.");
-      photoImportRows=result.products.map(p=>({...p,selected:true,priceText:p.price===null?"":String(p.price),costText:p.cost===null?"":String(p.cost)}));
+      const result=await window.posAI.analyzeImage({dataUrl,mime:file.type});if(!result.success)throw new Error(result.error||"Invoice analysis failed.");
+      photoInvoiceMeta={supplier:result.supplier||"",invoiceNumber:result.invoiceNumber||"",invoiceDate:result.invoiceDate||today(),dueDate:result.dueDate||"",amountPaid:result.amountPaid===null?"":String(result.amountPaid)};
+      photoImportRows=result.products.map(p=>({...p,selected:true,quantityText:p.quantity===null?"":String(p.quantity),unitCostText:p.unitCost===null?"":String(p.unitCost),salePriceText:p.salePrice===null?"":String(p.salePrice)}));
       renderPhotoProductReview();
-    }catch(error){alert(error.message||"Could not analyze this photo.")}
-    finally{button.disabled=false;button.textContent="Analyze Photo"}
+    }catch(error){alert(error.message||"Could not analyze this invoice.")}
+    finally{button.disabled=false;button.textContent="Analyze Invoice"}
   };
   $("#cancelPhotoImport").onclick=closeModal;
   $("#applyPhotoProducts").onclick=()=>{
-    let added=0,updated=0,skipped=0;
+    const supplier=$("#invoiceSupplier").value.trim(),date=$("#invoiceDate").value||today(),dueDate=$("#invoiceDue").value||"",invoiceNo=$("#invoiceNumber").value.trim(),paidInput=$("#invoicePaid").value.trim();
+    if(!supplier)return alert("Enter the supplier/wholesaler name.");
+    const selected=[];
     for(let i=0;i<photoImportRows.length;i++){
-      const row=photoImportRows[i];if(!row.selected){skipped++;continue}
-      const name=String($("#photoName"+i)?.value||row.name).trim();
-      const priceText=$("#photoPrice"+i)?.value??row.priceText;
-      const costText=$("#photoCost"+i)?.value??row.costText;
-      const unit=$("#photoUnit"+i)?.value||row.unit;
-      if(!name){skipped++;continue}
-      const price=priceText.trim()===""?null:Number(priceText),cost=costText.trim()===""?null:Number(costText);
-      if((price!==null&&(!Number.isFinite(price)||price<0))||(cost!==null&&(!Number.isFinite(cost)||cost<0))){alert("Fix invalid prices or costs before importing.");return}
-      const existing=db.products.find(p=>p.name.trim().toLocaleLowerCase()===name.toLocaleLowerCase());
-      if(existing){
-        if(price!==null)existing.price=price;
-        if(cost!==null)existing.cost=cost;
-        if(unit&&unit!=="other")existing.unit=unit;
-        updated++;
-      }else{
-        db.products.push({id:id(),name,price:price??0,cost:cost??0,stock:0,unit:unit==="other"?"unit":unit});
-        added++;
-      }
+      const row=photoImportRows[i];if(!row.selected)continue;
+      const name=String($("#photoName"+i)?.value||row.name).trim(),qtyText=$("#photoQty"+i)?.value??row.quantityText,costText=$("#photoCost"+i)?.value??row.unitCostText,unit=$("#photoUnit"+i)?.value||row.unit,saleText=$("#photoSale"+i)?.value??row.salePriceText;
+      const qty=qtyText.trim()===""?NaN:Number(qtyText),unitCost=costText.trim()===""?NaN:Number(costText),salePrice=saleText.trim()===""?null:Number(saleText);
+      if(!name||!Number.isFinite(qty)||qty<=0||!Number.isFinite(unitCost)||unitCost<0||(salePrice!==null&&(!Number.isFinite(salePrice)||salePrice<0)))return alert("Complete each selected product name, positive quantity and valid unit purchase cost. Fix any invalid sale prices too.");
+      selected.push({name,qty,unit,unitCost,salePrice});
     }
-    closeModal();save();go("products");alert("Import complete. Added: "+added+" · Updated: "+updated+" · Skipped: "+skipped+". Existing stock quantities were not changed.");
+    if(!selected.length)return alert("Select at least one product.");
+    const invoiceTotal=selected.reduce((sum,x)=>sum+x.qty*x.unitCost,0),paid=paidInput===""?0:Number(paidInput);
+    if(!Number.isFinite(paid)||paid<0||paid>invoiceTotal+0.01)return alert("Amount paid must be between zero and the invoice total of "+money(invoiceTotal)+".");
+    let remainingPaid=paid,added=0,updated=0;
+    selected.forEach((line,index)=>{
+      const lineTotal=line.qty*line.unitCost;
+      const allocatedPaid=index===selected.length-1?Math.min(remainingPaid,lineTotal):Math.min(lineTotal,paid*(invoiceTotal?lineTotal/invoiceTotal:0));
+      remainingPaid=Math.max(0,remainingPaid-allocatedPaid);
+      let product=db.products.find(p=>p.name.trim().toLocaleLowerCase()===line.name.toLocaleLowerCase());
+      if(product){product.stock=Number(product.stock||0)+line.qty;product.cost=line.unitCost;product.unit=line.unit;if(line.salePrice!==null)product.price=line.salePrice;updated++}
+      else{product={id:id(),name:line.name,price:line.salePrice??0,cost:line.unitCost,stock:line.qty,unit:line.unit==="other"?"unit":line.unit};db.products.push(product);added++}
+      db.purchases.push({id:"P-"+Date.now().toString().slice(-7)+"-"+index,supplier,item:line.name,qty:line.qty,unit:line.unit,unitCost:line.unitCost,total:lineTotal,paid:allocatedPaid,date,dueDate,notes:invoiceNo?"Invoice "+invoiceNo:"AI photo import",productId:product.id,payments:allocatedPaid?[{id:id(),date,amount:allocatedPaid,method:"",note:"Payment allocated from invoice import"}]:[]});
+    });
+    closeModal();save();go("purchases");alert("Invoice saved. Purchase records: "+selected.length+" · New products: "+added+" · Existing products updated: "+updated+". Existing stock was increased by the purchased quantities.");
   };
 }
+let photoInvoiceMeta={supplier:"",invoiceNumber:"",invoiceDate:"",dueDate:"",amountPaid:""};
 function renderPhotoProductReview(){
   const host=$("#photoProductReview"),actions=$("#photoImportActions");
-  if(!photoImportRows.length){host.innerHTML='<p class="empty">No products were confidently identified. Try a clearer, well-lit photo.</p>';actions.style.display="none";return}
-  host.innerHTML='<p class="hint">'+photoImportRows.length+' product row(s) found. Blank prices were unclear or not present. Existing products match by exact name and will have only supplied price/cost fields updated; stock is never changed.</p><div style="overflow:auto;max-height:300px"><table class="table"><thead><tr><th>Import</th><th>Product</th><th>Sale price</th><th>Cost</th><th>Unit</th></tr></thead><tbody>'+photoImportRows.map((p,i)=>'<tr><td><input type="checkbox" id="photoSelect'+i+'" '+(p.selected?'checked':'')+'></td><td><input id="photoName'+i+'" value="'+esc(p.name)+'" style="min-width:130px;width:100%"></td><td><input id="photoPrice'+i+'" type="number" min="0" step="0.01" value="'+esc(p.priceText)+'" style="width:100px"></td><td><input id="photoCost'+i+'" type="number" min="0" step="0.01" value="'+esc(p.costText)+'" style="width:100px"></td><td><select id="photoUnit'+i+'">'+["kg","g","unit","L","other"].map(u=>'<option value="'+u+'" '+(p.unit===u?'selected':'')+'>'+u+'</option>').join("")+'</select></td></tr>').join("")+'</tbody></table></div>';
+  if(!photoImportRows.length){host.innerHTML='<p class="empty">No purchased products were confidently identified. Try a clearer, well-lit invoice photo.</p>';actions.style.display="none";return}
+  host.innerHTML='<div class="panel" style="margin:12px 0;padding:12px"><h3>Invoice details</h3><label>Supplier / wholesaler<input id="invoiceSupplier" value="'+esc(photoInvoiceMeta.supplier)+'" placeholder="Supplier name"></label><div class="modalgrid"><label>Invoice number<input id="invoiceNumber" value="'+esc(photoInvoiceMeta.invoiceNumber)+'"></label><label>Amount paid on this invoice<input id="invoicePaid" type="number" min="0" step="0.01" value="'+esc(photoInvoiceMeta.amountPaid)+'" placeholder="0"></label></div><div class="modalgrid"><label>Purchase date<input id="invoiceDate" type="date" value="'+esc(photoInvoiceMeta.invoiceDate||today())+'"></label><label>Due date<input id="invoiceDue" type="date" value="'+esc(photoInvoiceMeta.dueDate)+'"></label></div></div><p class="hint">'+photoImportRows.length+' item(s) found. Confirm quantities and purchase cost per unit. The paid amount is distributed across item records in proportion to their line totals.</p><div style="overflow:auto;max-height:300px"><table class="table"><thead><tr><th>Save</th><th>Product</th><th>Qty</th><th>Unit cost</th><th>Sale price (optional)</th><th>Unit</th></tr></thead><tbody>'+photoImportRows.map((p,i)=>'<tr><td><input type="checkbox" id="photoSelect'+i+'" '+(p.selected?'checked':'')+'></td><td><input id="photoName'+i+'" value="'+esc(p.name)+'" style="min-width:130px;width:100%"></td><td><input id="photoQty'+i+'" type="number" min="0.001" step="0.001" value="'+esc(p.quantityText)+'" style="width:85px"></td><td><input id="photoCost'+i+'" type="number" min="0" step="0.01" value="'+esc(p.unitCostText)+'" style="width:95px"></td><td><input id="photoSale'+i+'" type="number" min="0" step="0.01" value="'+esc(p.salePriceText)+'" style="width:95px"></td><td><select id="photoUnit'+i+'">'+["kg","g","unit","L","bag","box","other"].map(u=>'<option value="'+u+'" '+(p.unit===u?'selected':'')+'>'+u+'</option>').join("")+'</select></td></tr>').join("")+'</tbody></table></div>';
   photoImportRows.forEach((p,i)=>{$("#photoSelect"+i).onchange=e=>p.selected=e.target.checked});
   actions.style.display="flex";
 }
@@ -135,7 +154,7 @@ function bindEvents(){
   safe(()=>{$$("[data-go]").forEach(b=>b.onclick=()=>safe(()=>go(b.dataset.go)));});
   safe(()=>{$("#quickBill").onclick=()=>safe(()=>go("billing"));});
   safe(()=>{$("#newProduct").onclick=()=>safe(()=>productModal());});
-  safe(()=>{$("#importProductsPhoto").onclick=()=>safe(()=>photoImportModal());});
+  safe(()=>{$("#importPurchasesPhoto").onclick=()=>safe(()=>photoImportModal());});
   safe(()=>{$("#newExpense").onclick=()=>safe(()=>expenseModal());});
   safe(()=>{$("#newPurchase").onclick=()=>safe(()=>purchaseModal());});
   safe(()=>{$("#purchaseSearch").oninput=renderPurchases;});

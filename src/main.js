@@ -105,62 +105,108 @@ ipcMain.handle("print-receipt",async(event,args)=>{
 });
 
 
-function aiKeyPath(){return path.join(app.getPath("userData"),"openai-api-key.enc")}
-function readAIKey(){
+function aiConfigPath(){return path.join(app.getPath("userData"),"ai-provider-config.enc")}
+function readAIConfig(){
   try{
-    if(!safeStorage.isEncryptionAvailable())return "";
-    const encrypted=fs.readFileSync(aiKeyPath());
-    return safeStorage.decryptString(encrypted);
-  }catch{return ""}
+    if(!safeStorage.isEncryptionAvailable())return null;
+    if(fs.existsSync(aiConfigPath())){
+      const encrypted=fs.readFileSync(aiConfigPath());
+      const config=JSON.parse(safeStorage.decryptString(encrypted));
+      return config&&typeof config==="object"?config:null;
+    }
+    // Migrate the previous OpenAI-only encrypted key without exposing it.
+    const legacyPath=path.join(app.getPath("userData"),"openai-api-key.enc");
+    if(fs.existsSync(legacyPath)){
+      const legacyKey=safeStorage.decryptString(fs.readFileSync(legacyPath));
+      return {provider:"openai",apiKey:legacyKey,model:"gpt-4.1-mini",baseUrl:""};
+    }
+    return null;
+  }catch{return null}
 }
-ipcMain.handle("ai-key-status",async()=>({configured:Boolean(readAIKey()),secureStorageAvailable:safeStorage.isEncryptionAvailable()}));
-ipcMain.handle("ai-save-key",async(_event,key)=>{
+ipcMain.handle("ai-key-status",async()=>{
+  const config=readAIConfig();
+  return {configured:Boolean(config?.apiKey),provider:config?.provider||"openai",model:config?.model||"",baseUrl:config?.baseUrl||"",secureStorageAvailable:safeStorage.isEncryptionAvailable()};
+});
+ipcMain.handle("ai-save-config",async(_event,input)=>{
   if(!safeStorage.isEncryptionAvailable())return {success:false,error:"Windows secure storage is unavailable. The API key was not saved."};
-  if(typeof key!=="string"||!key.trim()||key.trim().length>300)return {success:false,error:"Enter a valid API key."};
-  try{fs.writeFileSync(aiKeyPath(),safeStorage.encryptString(key.trim()),{mode:0o600});return {success:true}}
-  catch(error){return {success:false,error:"Could not securely save the API key: "+error.message}}
+  if(!input||typeof input!=="object")return {success:false,error:"Enter provider settings."};
+  const provider=String(input.provider||"openai");
+  const previous=readAIConfig();
+  const apiKey=String(input.apiKey||"").trim()||String(previous?.apiKey||"");
+  const model=String(input.model||"").trim();
+  const baseUrl=String(input.baseUrl||"").trim();
+  const allowed=["openai","gemini","openrouter","groq","together","custom"];
+  if(!allowed.includes(provider))return {success:false,error:"Choose a supported provider."};
+  if(!apiKey||apiKey.length>500)return {success:false,error:"Enter a valid API key."};
+  if(!model||model.length>200)return {success:false,error:"Enter a model name."};
+  if(provider==="custom"){
+    try{const u=new URL(baseUrl);if(u.protocol!=="https:"||u.username||u.password)return {success:false,error:"Custom API endpoint must be a valid HTTPS URL without embedded credentials."};}
+    catch{return {success:false,error:"Enter a valid HTTPS API endpoint for your custom provider."};}
+  }
+  const config={provider,apiKey,model,baseUrl};
+  try{fs.writeFileSync(aiConfigPath(),safeStorage.encryptString(JSON.stringify(config)),{mode:0o600});return {success:true};}
+  catch(error){return {success:false,error:"Could not securely save provider settings: "+error.message};}
 });
 ipcMain.handle("ai-analyze-product-image",async(_event,args)=>{
-  const apiKey=readAIKey();
-  if(!apiKey)return {success:false,error:"Add and save your OpenAI API key first."};
+  const config=readAIConfig();
+  if(!config?.apiKey)return {success:false,error:"Choose an AI provider and save its API key first."};
   const data=args?.dataUrl,mime=args?.mime;
   if(!["image/jpeg","image/png","image/webp"].includes(mime)||typeof data!=="string"||!data.startsWith("data:"+mime+";base64,"))return {success:false,error:"Choose a JPG, PNG, or WEBP image."};
   const base64=data.slice(data.indexOf(",")+1);
   if(base64.length>11000000)return {success:false,error:"Image is too large. Choose an image under about 8 MB."};
+  const instructions="Extract a supplier invoice or purchase list. Return only JSON with supplier (string or empty), invoiceNumber (string or empty), invoiceDate (YYYY-MM-DD or empty), dueDate (YYYY-MM-DD or empty), amountPaid (number or null), and products (array). Each product has name (string), quantity (number or null), unit (kg, g, unit, L, bag, box, other), unitCost (number or null), salePrice (number or null). quantity is the purchased quantity on this invoice, NOT current stock. unitCost is purchase price per unit. salePrice only when clearly shown as retail/selling price. Do not confuse line total with unit cost; if only line total and quantity are clear, calculate unitCost as line total divided by quantity. Do not guess unclear values; use null. Ignore taxes and grand totals for line prices. Never invent supplier, name, or number.";
+  const userText="Read this supplier invoice carefully. Extract supplier and invoice details plus each purchased product, quantity, unit, and unit purchase cost. A receipt quantity is a new purchase quantity. If unclear, leave it blank/null rather than guessing.";
   try{
-    const response=await fetch("https://api.openai.com/v1/chat/completions",{
-      method:"POST",
-      headers:{"Authorization":"Bearer "+apiKey,"Content-Type":"application/json"},
-      body:JSON.stringify({
-        model:"gpt-4.1-mini",
-        response_format:{type:"json_object"},
-        messages:[
-          {role:"system",content:"Extract product rows from the provided handwritten inventory list, product price list, or supplier receipt. Return only a JSON object with key products, an array of objects with fields name (string), price (number or null), cost (number or null), unit (one of kg, g, unit, L, or other). price means selling price only when clearly labelled as retail/sale price. cost means purchase/wholesale cost only when clearly labelled. Do not guess unclear values; use null. Do not treat receipt quantities as current stock. Ignore totals, taxes, payment details, customer information, and non-product rows. Deduplicate repeated rows where safe. Never invent a product name or number."},
-          {role:"user",content:[
-            {type:"text",text:"Read this image carefully. Handwriting may be unclear. Extract every clearly identifiable product and its clearly labelled prices. If a number or name is uncertain, leave that field blank/null rather than guessing."},
-            {type:"image_url",image_url:{url:data,detail:"high"}}
-          ]}
-        ],
-        max_tokens:5000
-      })
-    });
-    const payload=await response.json().catch(()=>({}));
-    if(!response.ok){
-      const message=payload?.error?.message||("OpenAI API request failed ("+response.status+").");
-      return {success:false,error:response.status===401?"The API key was rejected. Check the key and try again.":response.status===429?"API rate limit or billing limit reached. Check your API account billing/limits.":message};
+    let response,payload;
+    if(config.provider==="gemini"){
+      const url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(config.model)+":generateContent?key="+encodeURIComponent(config.apiKey);
+      response=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+        systemInstruction:{parts:[{text:instructions}]},
+        contents:[{role:"user",parts:[{text:userText},{inline_data:{mime_type:mime,data:base64}}]}],
+        generationConfig:{responseMimeType:"application/json",temperature:0.1}
+      })});
+      payload=await response.json().catch(()=>({}));
+      if(!response.ok)return {success:false,error:payload?.error?.message||("Gemini API request failed ("+response.status+"). Check the key, model access, and billing/quotas.")};
+      const content=payload?.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("")||"";
+      const parsed=JSON.parse(content);
+      if(!Array.isArray(parsed.products))return {success:false,error:"The AI response did not contain a product list. Try a clearer photo."};
+      return normalizeAIInvoice(parsed);
     }
+    let base;
+    if(config.provider==="openai")base="https://api.openai.com/v1";
+    else if(config.provider==="openrouter")base="https://openrouter.ai/api/v1";
+    else if(config.provider==="groq")base="https://api.groq.com/openai/v1";
+    else if(config.provider==="together")base="https://api.together.xyz/v1";
+    else base=config.baseUrl.replace(/\/+$/,"").replace(/\/chat\/completions$/,"");
+    const endpoint=base.replace(/\/+$/,"")+"/chat/completions";
+    response=await fetch(endpoint,{method:"POST",headers:{"Authorization":"Bearer "+config.apiKey,"Content-Type":"application/json"},body:JSON.stringify({
+      model:config.model,
+      response_format:{type:"json_object"},
+      messages:[
+        {role:"system",content:instructions},
+        {role:"user",content:[{type:"text",text:userText},{type:"image_url",image_url:{url:data,detail:"high"}}]}
+      ],
+      max_tokens:5000,temperature:0.1
+    })});
+    payload=await response.json().catch(()=>({}));
+    if(!response.ok)return {success:false,error:payload?.error?.message||("AI provider request failed ("+response.status+"). Check provider, model, key, image support, and billing/quotas.")};
     const content=payload?.choices?.[0]?.message?.content||"";
-    const parsed=JSON.parse(content);
+    const parsed=JSON.parse(typeof content==="string"?content:JSON.stringify(content));
     if(!Array.isArray(parsed.products))return {success:false,error:"The AI response did not contain a product list. Try a clearer photo."};
-    const products=parsed.products.slice(0,300).map(x=>({
-      name:typeof x.name==="string"?x.name.trim().slice(0,120):"",
-      price:Number.isFinite(Number(x.price))&&x.price!==null?Math.max(0,Number(x.price)):null,
-      cost:Number.isFinite(Number(x.cost))&&x.cost!==null?Math.max(0,Number(x.cost)):null,
-      unit:["kg","g","unit","L","other"].includes(x.unit)?x.unit:"unit"
-    })).filter(x=>x.name);
-    return {success:true,products};
-  }catch(error){return {success:false,error:"Could not read the image. Check your internet connection and API access, then try again. ("+error.message+")"}}
+    return normalizeAIInvoice(parsed);
+  }catch(error){return {success:false,error:"Could not read the image. Check the provider endpoint, model's image support, internet connection, and API access. ("+error.message+")"}}
 });
+function normalizeAIInvoice(data){
+  const num=v=>v!==null&&v!==""&&Number.isFinite(Number(v))?Math.max(0,Number(v)):null;
+  const products=(Array.isArray(data.products)?data.products:[]).slice(0,300).map(x=>({
+    name:typeof x.name==="string"?x.name.trim().slice(0,120):"",
+    quantity:num(x.quantity),
+    unit:["kg","g","unit","L","bag","box","other"].includes(x.unit)?x.unit:"unit",
+    unitCost:num(x.unitCost),
+    salePrice:num(x.salePrice)
+  })).filter(x=>x.name);
+  return {success:true,supplier:typeof data.supplier==="string"?data.supplier.trim().slice(0,120):"",invoiceNumber:typeof data.invoiceNumber==="string"?data.invoiceNumber.trim().slice(0,80):"",invoiceDate:typeof data.invoiceDate==="string"?data.invoiceDate:"",dueDate:typeof data.dueDate==="string"?data.dueDate:"",amountPaid:num(data.amountPaid),products};
+}
 
 app.whenReady().then(()=>{
   Menu.setApplicationMenu(null);
