@@ -12,3 +12,8 @@ label { pointer-events: auto; }
 
 /* Keep the WhatsApp number field directly interactive in Electron/Windows. */
 .customer-panel{position:relative;isolation:isolate}.customer-panel #customerWhatsApp{display:block;width:100%;min-height:42px;position:relative;z-index:10;pointer-events:auto;-webkit-app-region:no-drag;user-select:text;-webkit-user-select:text}
+
+/* Hidden dialog overlays must never intercept clicks or keyboard focus. */
+.modal:not(.show){display:none!important;visibility:hidden!important;pointer-events:none!important}.modal.show{visibility:visible;pointer-events:auto}
+/* Keep text-entry controls outside Electron drag regions. */
+input,textarea,select{-webkit-app-region:no-drag!important;pointer-events:auto!important;user-select:text!important;-webkit-user-select:text!important}
