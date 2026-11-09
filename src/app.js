@@ -26,19 +26,40 @@ function purchasePaymentModal(pid){
 
 let photoImportRows=[];
 function photoImportModal(){
-  modal('<h2>AI Bulk Product Import</h2><p class="hint">Upload a clear photo of a handwritten product list, price list, or supplier receipt. AI will extract product names and clearly labelled prices. Check every row before importing.</p><label>Photo (JPG, PNG, WEBP)<input id="photoProductFile" type="file" accept="image/jpeg,image/png,image/webp"></label><p class="hint" id="aiKeyStatus">Checking secure API-key setup…</p><label>OpenAI API key<input id="photoAIKey" type="password" autocomplete="off" placeholder="Paste your own API key here"></label><div class="modal-actions" style="justify-content:space-between"><button class="ghost" id="savePhotoAIKey">Save API Key Securely</button><button class="primary" id="analyzeProductPhoto">Analyze Photo</button></div><p class="hint">The key is encrypted in this Windows user account and is not stored in the product database. The selected photo is sent to OpenAI for analysis. API usage may cost money.</p><div id="photoProductReview"></div><div class="modal-actions" id="photoImportActions" style="display:none"><button class="ghost" id="cancelPhotoImport">Cancel</button><button class="primary" id="applyPhotoProducts">Import Reviewed Products</button></div>');
+  modal('<h2>AI Bulk Product Import</h2><p class="hint">Upload a clear photo of a handwritten product list, price list, or supplier receipt. AI will extract product names and clearly labelled prices. Check every row before importing.</p><label>Photo (JPG, PNG, WEBP)<input id="photoProductFile" type="file" accept="image/jpeg,image/png,image/webp"></label><p class="hint" id="aiKeyStatus">Checking secure API-key setup…</p><label>AI Provider<select id="photoAIProvider"><option value="openai">OpenAI</option><option value="gemini">Google Gemini</option><option value="openrouter">OpenRouter</option><option value="groq">Groq</option><option value="together">Together AI</option><option value="custom">Custom OpenAI-compatible API</option></select></label><label>API Key<input id="photoAIKey" type="password" autocomplete="off" placeholder="Paste your provider API key"></label><label>Model name<input id="photoAIModel" placeholder="Model ID"></label><label id="photoAIEndpointLabel" style="display:none">Custom API endpoint (HTTPS)<input id="photoAIEndpoint" placeholder="https://your-provider.example/v1"></label><div class="modal-actions" style="justify-content:space-between"><button class="ghost" id="savePhotoAIKey">Save Provider Settings Securely</button><button class="primary" id="analyzeProductPhoto">Analyze Photo</button></div><p class="hint">Your key is encrypted on this PC. The photo is sent to the selected provider. API usage may cost money. The selected model must support image input. Custom providers must use the OpenAI-compatible Chat Completions format.</p><div id="photoProductReview"></div><div class="modal-actions" id="photoImportActions" style="display:none"><button class="ghost" id="cancelPhotoImport">Cancel</button><button class="primary" id="applyPhotoProducts">Import Reviewed Products</button></div>');
   photoImportRows=[];
   const status=$("#aiKeyStatus");
+  const provider=$("#photoAIProvider"),model=$("#photoAIModel"),endpointLabel=$("#photoAIEndpointLabel");
+  const defaults={
+    openai:{model:"gpt-4.1-mini",base:""},
+    gemini:{model:"gemini-2.5-flash",base:""},
+    openrouter:{model:"google/gemini-2.5-flash",base:""},
+    groq:{model:"meta-llama/llama-4-scout-17b-16e-instruct",base:""},
+    together:{model:"meta-llama/Llama-4-Scout-17B-16E-Instruct",base:""},
+    custom:{model:"",base:""}
+  };
+  function setProviderDefaults(){
+    const d=defaults[provider.value]||defaults.openai;
+    model.value=d.model;endpointLabel.style.display=provider.value==="custom"?"block":"none";
+  }
+  provider.onchange=setProviderDefaults;
+  setProviderDefaults();
   if(!window.posAI){status.textContent="AI import is unavailable in this build.";return}
   window.posAI.getKeyStatus().then(r=>{
-    status.textContent=!r.secureStorageAvailable?"Secure key storage is unavailable on this computer. The key will not be saved.":r.configured?"An encrypted API key is saved on this PC. Enter a new key only if you want to replace it.":"No API key saved yet. Add your own OpenAI API key below.";
+    if(r.configured){
+      provider.value=r.provider||"openai";
+      model.value=r.model||((defaults[provider.value]||{}).model||"");
+      $("#photoAIEndpoint").value=r.baseUrl||"";
+      endpointLabel.style.display=provider.value==="custom"?"block":"none";
+      status.textContent="Encrypted provider settings are saved on this PC. Enter a new key only if you want to replace them.";
+    }else status.textContent=!r.secureStorageAvailable?"Secure key storage is unavailable on this computer. The key will not be saved.":"No AI provider configured yet. Choose a provider and add your own API key.";
   }).catch(()=>status.textContent="Could not check API-key setup.");
   $("#savePhotoAIKey").onclick=async()=>{
     const key=$("#photoAIKey").value.trim();
-    if(!key)return alert("Paste your OpenAI API key first.");
-    const r=await window.posAI.saveKey(key);
-    if(r.success){$("#photoAIKey").value="";status.textContent="API key saved securely on this PC.";alert("API key saved securely.");}
-    else alert(r.error||"Could not save the API key.");
+    if(!key)return alert("Paste your API key first.");
+    const r=await window.posAI.saveConfig({provider:provider.value,apiKey:key,model:model.value.trim(),baseUrl:$("#photoAIEndpoint").value.trim()});
+    if(r.success){$("#photoAIKey").value="";status.textContent="Encrypted provider settings saved on this PC.";alert("AI provider settings saved securely.");}
+    else alert(r.error||"Could not save provider settings.");
   };
   $("#analyzeProductPhoto").onclick=async()=>{
     const file=$("#photoProductFile").files?.[0];
