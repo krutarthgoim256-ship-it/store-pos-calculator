@@ -22,11 +22,58 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install dependencies
-        run: npm install
+      - name: Cache Electron binary
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/electron-cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            electron-${{ runner.os }}-
 
-      - name: Build Windows app
-        run: npm run build
+      - name: Install dependencies (retry transient download failures)
+        shell: pwsh
+        env:
+          ELECTRON_CACHE: ${{ runner.temp }}/electron-cache
+        run: |
+          $attempt = 1
+          while ($attempt -le 3) {
+            Write-Host "Dependency installation attempt $attempt of 3"
+            npm install
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            if ($attempt -lt 3) {
+              Write-Host "Install failed; waiting 15 seconds before retry."
+              Start-Sleep -Seconds 15
+            }
+            $attempt++
+          }
+          throw "npm install failed after 3 attempts."
+
+      - name: Cache electron-builder resources
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/electron-builder-cache
+          key: electron-builder-${{ runner.os }}-${{ hashFiles('package.json') }}
+          restore-keys: |
+            electron-builder-${{ runner.os }}-
+          save-always: true
+
+      - name: Build Windows app (retry transient download failures)
+        shell: pwsh
+        env:
+          ELECTRON_BUILDER_CACHE: ${{ runner.temp }}/electron-builder-cache
+        run: |
+          $attempt = 1
+          while ($attempt -le 3) {
+            Write-Host "Windows packaging attempt $attempt of 3"
+            npm run build
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            if ($attempt -lt 3) {
+              Write-Host "Packaging failed; waiting 20 seconds before retry."
+              Start-Sleep -Seconds 20
+            }
+            $attempt++
+          }
+          throw "Windows packaging failed after 3 attempts."
 
       - name: Read app version
         id: version
