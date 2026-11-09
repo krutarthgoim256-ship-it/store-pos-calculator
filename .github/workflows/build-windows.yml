@@ -48,14 +48,13 @@ jobs:
           }
           throw "npm install failed after 3 attempts."
 
-      - name: Cache electron-builder resources
-        uses: actions/cache@v4
+      - name: Restore electron-builder resources cache
+        uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/electron-builder-cache
           key: electron-builder-${{ runner.os }}-${{ hashFiles('package.json') }}
           restore-keys: |
             electron-builder-${{ runner.os }}-
-          save-always: true
 
       - name: Build Windows app (retry transient download failures)
         shell: pwsh
@@ -74,6 +73,13 @@ jobs:
             $attempt++
           }
           throw "Windows packaging failed after 3 attempts."
+
+      - name: Save electron-builder resources cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/electron-builder-cache
+          key: electron-builder-${{ runner.os }}-${{ hashFiles('package.json') }}
 
       - name: Read app version
         id: version
