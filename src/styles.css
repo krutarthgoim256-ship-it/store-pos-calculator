@@ -17,3 +17,5 @@ label { pointer-events: auto; }
 .modal:not(.show){display:none!important;visibility:hidden!important;pointer-events:none!important}.modal.show{visibility:visible;pointer-events:auto}
 /* Keep text-entry controls outside Electron drag regions. */
 input,textarea,select{-webkit-app-region:no-drag!important;pointer-events:auto!important;user-select:text!important;-webkit-user-select:text!important}
+
+.header-actions{display:flex;align-items:center;gap:10px}.undo-btn{border:1px solid #d7dde5;background:#fff}.undo-btn:disabled{opacity:.45;cursor:not-allowed}.form-error{margin:0 0 14px;padding:10px 12px;border:1px solid #fecdca;border-radius:8px;background:#fff4f2;color:#b42318;font-size:13px}.app-notice{display:none;position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:100001;max-width:min(560px,90vw);padding:11px 15px;border:1px solid #fecdca;border-radius:9px;background:#fff4f2;color:#b42318;box-shadow:0 4px 18px #10182822;font-size:13px}.app-notice.show{display:block}
