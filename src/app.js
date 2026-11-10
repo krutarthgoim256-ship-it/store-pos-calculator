@@ -4,13 +4,16 @@ const KEY="store_pos_v1",UNDO_KEY="store_pos_undo_v1";const blank={settings:{sho
   let list=$("#customerNameSuggestions");
   if(!list){list=document.createElement("datalist");list.id="customerNameSuggestions";document.body.append(list);nameInput.setAttribute("list",list.id)}
   const refresh=()=>{
+    const customers=db.customers.filter(c=>String(c.name||"").trim()&&String(c.phone||"").trim());
+    const counts=new Map();
+    customers.forEach(c=>{const key=String(c.name).trim().toLocaleLowerCase();counts.set(key,(counts.get(key)||0)+1)});
     const seen=new Set();
-    const customers=db.customers.filter(c=>String(c.name||"").trim()&&String(c.phone||"").trim()).sort((a,b)=>String(a.name).localeCompare(String(b.name)));
-    list.innerHTML=customers.map(c=>{
+    list.innerHTML=customers.sort((a,b)=>String(a.name).localeCompare(String(b.name))).map(c=>{
       const name=String(c.name||"").trim(),phone=String(c.phone||"").trim(),key=name.toLocaleLowerCase()+"|"+phone;
       if(seen.has(key))return "";
       seen.add(key);
-      return '<option value="'+esc(name)+'" label="'+esc(phone)+'"></option>';
+      const value=counts.get(name.toLocaleLowerCase())>1?name+" · "+phone:name;
+      return '<option value="'+esc(value)+'" label="'+esc(phone)+'"></option>';
     }).join("");
   };
   if(nameInput.dataset.customerAutocompleteBound!=="1"){
@@ -24,16 +27,20 @@ const KEY="store_pos_v1",UNDO_KEY="store_pos_undo_v1";const blank={settings:{sho
       }
     });
     nameInput.addEventListener("change",()=>{
-      const typed=nameInput.value.trim().toLocaleLowerCase();
+      const typed=nameInput.value.trim();
       if(!typed)return;
-      const matches=db.customers.filter(c=>String(c.name||"").trim().toLocaleLowerCase()===typed&&String(c.phone||"").trim());
-      if(matches.length===1){
-        nameInput.value=String(matches[0].name||"");
-        phoneInput.value=String(matches[0].phone||"");
-        nameInput.dataset.selectedCustomerId=String(matches[0].id||"");
-      }else if(matches.length>1){
-        const exactPhone=matches.find(c=>String(c.phone||"")===phoneInput.value);
-        const selected=exactPhone||matches[0];
+      const separator=typed.lastIndexOf(" · ");
+      let selected=null;
+      if(separator>0){
+        const typedName=typed.slice(0,separator).trim().toLocaleLowerCase();
+        const typedPhone=typed.slice(separator+3).trim();
+        selected=db.customers.find(c=>String(c.name||"").trim().toLocaleLowerCase()===typedName&&String(c.phone||"").trim()===typedPhone);
+      }else{
+        const matches=db.customers.filter(c=>String(c.name||"").trim().toLocaleLowerCase()===typed.toLocaleLowerCase()&&String(c.phone||"").trim());
+        if(matches.length===1)selected=matches[0];
+        else if(matches.length>1)selected=matches.find(c=>String(c.phone||"")===phoneInput.value)||null;
+      }
+      if(selected){
         nameInput.value=String(selected.name||"");
         phoneInput.value=String(selected.phone||"");
         nameInput.dataset.selectedCustomerId=String(selected.id||"");
