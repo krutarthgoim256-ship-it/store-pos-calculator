@@ -26,3 +26,5 @@ input,textarea,select{-webkit-app-region:no-drag!important;pointer-events:auto!i
 .undo-customer-card span{font-size:13px;color:#667085}.undo-confirm h3{font-size:13px;margin:14px 0 6px}
 .undo-confirm p,.undo-confirm li{font-size:13px;line-height:1.55;color:#475467}.undo-confirm ul{padding-left:20px;margin:6px 0}
 .undo-warning{color:#b42318!important;font-weight:600}.undo-customer{white-space:nowrap}
+
+.report-cards{grid-template-columns:repeat(3,minmax(0,1fr))}.report-cards .card b{font-size:22px}@media(max-width:950px){.report-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:700px){.report-cards{grid-template-columns:1fr}}
